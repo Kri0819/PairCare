@@ -1,3 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#C4785A" />
+  <meta name="description" content="共享用藥紀錄工具 — 讓重要的人確認你有好好照顧自己" />
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="陪一刻" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <title>陪一刻</title>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #FAF7F2; }
+    body { font-family: sans-serif; }
+    #root { min-height: 100svh; }
+    #loading {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: linear-gradient(160deg, #FAF7F2 55%, #F5E6DE);
+      gap: 20px; z-index: 9999; transition: opacity 0.4s;
+    }
+    #loading h1 {
+      font-size: 2.4rem; letter-spacing: 0.12em;
+      color: #231C10; font-weight: 400;
+    }
+    #loading .dots { display: flex; gap: 8px; }
+    #loading .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #C4785A; animation: pulse 1.2s ease-in-out infinite;
+    }
+    #loading .dot:nth-child(2) { animation-delay: 0.2s; }
+    #loading .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+    #loading.out { opacity: 0; pointer-events: none; }
+  </style>
+</head>
+
+<body>
+  <div id="loading">
+    <h1>陪一刻</h1>
+    <div class="dots">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+  </div>
+  <div id="root"></div>
+
+  <!-- React 18 + Babel standalone (cached by SW after first load) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js" crossorigin></script>
+
+  <!-- Shim React hooks onto window so JSX can use them without import -->
+  <script>
+    var useState    = React.useState;
+    var useEffect   = React.useEffect;
+    var useCallback = React.useCallback;
+    var useRef      = React.useRef;
+    var useMemo     = React.useMemo;
+  </script>
+
+  <!-- App source (JSX → JS transformed by Babel standalone inline) -->
+  <script type="text/babel" data-presets="react">
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "peiYike_v3";
@@ -23,14 +100,23 @@ function loadState() {
       const s = JSON.parse(raw);
       if (!s.scheduleLog) s.scheduleLog = {};
       if (!s.settings)    s.settings    = { dayResetHour: 4, reminderTimes: [] };
+      // Restore currentUser from backup if missing (handles Babel timing edge-case)
+      if (!s.currentUser) s.currentUser = loadCurrentUser();
       return s;
     }
     // Migrate v1/v2
     for (const k of ["peiYike_v2", "peiYike_v1"]) {
       const old = localStorage.getItem(k);
-      if (old) return migrateOld(JSON.parse(old));
+      if (old) {
+        const migrated = migrateOld(JSON.parse(old));
+        migrated.currentUser = migrated.currentUser || loadCurrentUser();
+        return migrated;
+      }
     }
   } catch {}
+  // No stored state — try to at least recover user identity
+  const user = loadCurrentUser();
+  if (user) return { ...EMPTY_STATE, currentUser: user };
   return null;
 }
 
@@ -51,7 +137,22 @@ function migrateOld(old) {
 }
 
 function saveState(s) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    // Persist currentUser separately so login survives hard reloads
+    if (s.currentUser) {
+      localStorage.setItem(STORAGE_KEY + '_user', JSON.stringify(s.currentUser));
+    } else {
+      localStorage.removeItem(STORAGE_KEY + '_user');
+    }
+  } catch {}
+}
+
+function loadCurrentUser() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY + '_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -435,8 +536,25 @@ label {
 .modal {
   background: var(--paper); border-radius: 22px 22px 0 0;
   width: 100%; max-width: 430px; margin: 0 auto;
-  padding: 24px 24px 44px; max-height: 90svh; overflow-y: auto;
+  /* Use dvh so iOS Safari toolbar is excluded from height calc */
+  max-height: 92dvh;
+  /* Fallback for older browsers */
+  max-height: min(92dvh, 92vh);
+  display: flex; flex-direction: column;
   animation: slideUp 0.26s cubic-bezier(.32,.72,0,1);
+  overflow: hidden; /* children handle scroll */
+}
+.modal-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  padding: 0 24px;
+  /* Bottom: enough for iPhone home indicator + button */
+  padding-bottom: calc(32px + env(safe-area-inset-bottom, 20px));
+}
+.modal-top {
+  padding: 24px 24px 0;
+  flex-shrink: 0;
 }
 @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 22px; }
@@ -549,6 +667,8 @@ window.App = function App() {
     const check = () => {
       const date = getLogicalDate(state.settings?.dayResetHour ?? 4);
       const nowM = now.getHours() * 60 + now.getMinutes();
+
+      // ── Per-medication period reminders ──
       state.medications.filter(m => m.status === "active").forEach(med => {
         (med.schedules || []).forEach(sched => {
           const key  = doseKey(date, med.id, sched.periodId);
@@ -558,13 +678,23 @@ window.App = function App() {
           const diff = nowM - t;
           if (diff >= 0 && diff < 2 && !firedRef.current[key+"_due"]) {
             firedRef.current[key+"_due"] = true;
-            notify("陪一刻｜服藥提醒", `現在是${PERIOD_MAP[sched.periodId]?.label}用藥時間，記得吃 ${med.name}`);
+            notify("陪一刻｜服藥提醒", \`現在是\${PERIOD_MAP[sched.periodId]?.label}用藥時間，記得吃 \${med.name}\`);
           }
           if (diff >= 90 && !firedRef.current[key+"_late"]) {
             firedRef.current[key+"_late"] = true;
-            notify("陪一刻｜還沒吃藥", `${med.name} ${PERIOD_MAP[sched.periodId]?.label}的劑量超過 90 分鐘未記錄`);
+            notify("陪一刻｜還沒吃藥", \`\${med.name} \${PERIOD_MAP[sched.periodId]?.label}的劑量超過 90 分鐘未記錄\`);
           }
         });
+      });
+
+      // ── Custom reminder times (settings) ──
+      (state.settings?.reminderTimes || []).forEach(rt => {
+        const fireKey = "reminder_" + date + "_" + rt;
+        const diff = nowM - toMins(rt);
+        if (diff >= 0 && diff < 2 && !firedRef.current[fireKey]) {
+          firedRef.current[fireKey] = true;
+          notify("陪一刻｜該吃藥了", "記得按時服藥，照顧好自己 💊");
+        }
       });
     };
     check();
@@ -1042,8 +1172,8 @@ function AddMedModal({ onClose, onSave }) {
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal">
-        <div className="modal-handle"/>
-        <h3>新增藥物</h3>
+        <div className="modal-top"><div className="modal-handle"/><h3>新增藥物</h3></div>
+        <div className="modal-scroll">
         <div className="field">
           <label>藥物名稱</label>
           <input type="text" value={name} onChange={e=>setName(e.target.value)} placeholder="例：Escitalopram 10mg" autoFocus/>
@@ -1061,6 +1191,7 @@ function AddMedModal({ onClose, onSave }) {
           儲存藥物
         </button>
         <button className="btn btn-ghost" onClick={onClose}>取消</button>
+        </div>
       </div>
     </div>
   );
@@ -1112,8 +1243,8 @@ function AddVisitModal({ medications, allMeds, onClose, onSave }) {
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal">
-        <div className="modal-handle"/>
-        <h3>新增看診紀錄</h3>
+        <div className="modal-top"><div className="modal-handle"/><h3>新增看診紀錄</h3></div>
+        <div className="modal-scroll">
         <div className="field">
           <label>看診日期</label>
           <input type="date" value={date} onChange={e=>setDate(e.target.value)}/>
@@ -1193,6 +1324,7 @@ function AddVisitModal({ medications, allMeds, onClose, onSave }) {
         <hr className="divider"/>
         <button className="btn btn-primary" onClick={save}>儲存看診紀錄</button>
         <button className="btn btn-ghost" onClick={onClose}>取消</button>
+        </div>
       </div>
     </div>
   );
@@ -1201,45 +1333,108 @@ function AddVisitModal({ medications, allMeds, onClose, onSave }) {
 // ─── Settings Modal ───────────────────────────────────────────────────────────
 function SettingsModal({ state, update, onClose, showToast, notifOk, askNotif }) {
   const hr = state.settings?.dayResetHour ?? 4;
+  const reminderTimes = state.settings?.reminderTimes || [];
+
+  function addReminderTime() {
+    const t = "08:00";
+    update(s => { s.settings.reminderTimes = [...(s.settings.reminderTimes||[]), t]; });
+  }
+
+  function updateReminderTime(idx, val) {
+    update(s => {
+      const arr = [...(s.settings.reminderTimes||[])];
+      arr[idx] = val;
+      s.settings.reminderTimes = arr;
+    });
+  }
+
+  function removeReminderTime(idx) {
+    update(s => {
+      s.settings.reminderTimes = (s.settings.reminderTimes||[]).filter((_,i) => i !== idx);
+    });
+  }
 
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal">
-        <div className="modal-handle"/>
-        <h3>設定</h3>
-        <div style={{background:"white",borderRadius:16,border:"1.5px solid var(--border)",padding:"0 16px",marginBottom:16}}>
-          <div className="settings-row">
-            <div>
-              <div className="settings-label">日切點時間</div>
-              <div className="settings-sub">幾點以前算昨天（預設 4 點）</div>
-            </div>
-            <input type="number" min={0} max={11} value={hr} style={{width:64,marginTop:0,textAlign:"center"}}
-              onChange={e=>update(s=>{s.settings.dayResetHour=Number(e.target.value);})}/>
-          </div>
-          <div className="settings-row">
-            <div>
-              <div className="settings-label">服藥提醒通知</div>
-              <div className="settings-sub">
-                {Notification?.permission==="denied" ? "已被瀏覽器封鎖，請至設定手動開啟"
-                  : notifOk ? "已開啟 — 依各藥物時段自動推播" : "尚未開啟"}
+        <div className="modal-top">
+          <div className="modal-handle"/>
+          <h3>設定</h3>
+        </div>
+        <div className="modal-scroll">
+
+          {/* ── 通知提醒 ── */}
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:"0.75rem",fontWeight:600,color:"var(--ink-muted)",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"'DM Mono',monospace",marginBottom:10}}>服藥提醒通知</div>
+            <div style={{background:"white",borderRadius:12,border:"1.5px solid var(--border)",padding:"0 16px",marginBottom:10}}>
+              <div className="settings-row">
+                <div>
+                  <div className="settings-label">推播通知</div>
+                  <div className="settings-sub">
+                    {typeof Notification === "undefined" ? "此裝置不支援通知"
+                      : Notification.permission === "denied" ? "⚠ 已被封鎖，請至瀏覽器設定手動開啟"
+                      : notifOk ? "已開啟" : "尚未開啟"}
+                  </div>
+                </div>
+                {notifOk
+                  ? <span style={{fontSize:"1.3rem"}}>✅</span>
+                  : (typeof Notification !== "undefined" && Notification.permission !== "denied") && (
+                      <button className="btn btn-sm"
+                        style={{background:"var(--sage)",color:"white",border:"none",flexShrink:0}}
+                        onClick={askNotif}>開啟</button>
+                    )
+                }
               </div>
             </div>
-            {notifOk
-              ? <span style={{fontSize:"1.3rem"}}>✅</span>
-              : Notification?.permission!=="denied" && (
-                  <button className="btn btn-sm" style={{background:"var(--sage)",color:"white",border:"none"}} onClick={askNotif}>開啟</button>
-                )
-            }
+
+            {/* Reminder times list */}
+            <div style={{fontSize:"0.78rem",color:"var(--ink-light)",marginBottom:8,fontWeight:500}}>每日提醒時間</div>
+            <div style={{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:10,lineHeight:1.5}}>
+              到時間自動推播「陪一刻｜該吃藥了」，可設定多組。
+            </div>
+            {reminderTimes.map((t, idx) => (
+              <div key={idx} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <input type="time" value={t} style={{flex:1,marginTop:0}}
+                  onChange={e=>updateReminderTime(idx, e.target.value)}/>
+                <button className="btn-icon" onClick={()=>removeReminderTime(idx)}
+                  style={{flexShrink:0}}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{width:18,height:18}}><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+            ))}
+            <button className="btn btn-secondary" style={{marginTop:4}}
+              onClick={addReminderTime}>＋ 新增提醒時間</button>
+
+            {reminderTimes.length > 0 && !notifOk && (
+              <p style={{fontSize:"0.72rem",color:"var(--rose)",marginTop:10,lineHeight:1.5}}>
+                ⚠ 請先開啟推播通知，提醒才能正常運作。
+              </p>
+            )}
           </div>
+
+          {/* ── 日切點 ── */}
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:"0.75rem",fontWeight:600,color:"var(--ink-muted)",letterSpacing:"0.12em",textTransform:"uppercase",fontFamily:"'DM Mono',monospace",marginBottom:10}}>日期設定</div>
+            <div style={{background:"white",borderRadius:12,border:"1.5px solid var(--border)",padding:"0 16px"}}>
+              <div className="settings-row">
+                <div>
+                  <div className="settings-label">換日時間</div>
+                  <div className="settings-sub">幾點以前仍算前一天（預設 4:00）</div>
+                </div>
+                <input type="number" min={0} max={11} value={hr}
+                  style={{width:64,marginTop:0,textAlign:"center",flexShrink:0}}
+                  onChange={e=>update(s=>{s.settings.dayResetHour=Number(e.target.value);})}/>
+              </div>
+            </div>
+          </div>
+
+          <button className="btn btn-secondary" style={{marginTop:0}} onClick={onClose}>關閉</button>
         </div>
-        <p style={{fontSize:"0.75rem",color:"var(--ink-muted)",lineHeight:1.65,marginBottom:16}}>
-          提醒時間依每個藥物的服用時段自動決定。到達時段預設時間時推播；超過 90 分鐘未記錄時再提醒一次。
-        </p>
-        <button className="btn btn-ghost" style={{width:"100%"}} onClick={onClose}>關閉</button>
       </div>
     </div>
   );
 }
+
 
 // ─── Profile Modal ────────────────────────────────────────────────────────────
 function ProfileModal({ state, update, onClose, showToast }) {
@@ -1248,15 +1443,15 @@ function ProfileModal({ state, update, onClose, showToast }) {
   function logout() { update(s=>{s.currentUser=null;}); onClose(); }
   function resetAll() {
     if(!window.confirm("⚠️ 確定清除所有資料？此操作無法還原。")) return;
-    [STORAGE_KEY,"peiYike_v2","peiYike_v1"].forEach(k=>localStorage.removeItem(k));
+    [STORAGE_KEY, STORAGE_KEY+"_user", "peiYike_v2", "peiYike_v1"].forEach(k=>localStorage.removeItem(k));
     window.location.reload();
   }
 
   return (
     <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="modal">
-        <div className="modal-handle"/>
-        <h3>帳號</h3>
+        <div className="modal-top"><div className="modal-handle"/><h3>帳號</h3></div>
+        <div className="modal-scroll">
         <div className="pair-info">
           <span>👤</span>
           <span>{u.name} · {u.role==="user"?"用藥者":"陪伴者（檢視）"}</span>
@@ -1277,6 +1472,7 @@ function ProfileModal({ state, update, onClose, showToast }) {
         </div>
         {u.role==="user" && <button className="btn btn-danger btn-sm" onClick={resetAll}>清除所有資料（無法還原）</button>}
         <button className="btn btn-ghost" style={{marginTop:10,width:"100%"}} onClick={onClose}>取消</button>
+        </div>
       </div>
     </div>
   );
@@ -1361,3 +1557,32 @@ function OnboardScreen({ update }) {
     </div>
   );
 }
+
+  </script>
+
+  <!-- Mount + Service Worker -->
+  <script>
+    // Mount React app
+    (function tryMount() {
+      if (window.App && window.ReactDOM) {
+        ReactDOM.createRoot(document.getElementById('root'))
+          .render(React.createElement(window.App));
+        var el = document.getElementById('loading');
+        el.classList.add('out');
+        setTimeout(function() { el && el.remove(); }, 500);
+      } else {
+        setTimeout(tryMount, 80);
+      }
+    })();
+
+    // Register Service Worker for offline + installability
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js')
+          .then(function(r) { console.log('[SW] ok', r.scope); })
+          .catch(function(e) { console.warn('[SW]', e); });
+      });
+    }
+  </script>
+</body>
+</html>
