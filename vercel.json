@@ -1,8 +1,7 @@
 {
-  "version": 2,
   "headers": [
     {
-      "source": "/:path*(.js)",
+      "source": "/(.*)\\.js",
       "headers": [
         {
           "key": "Content-Type",
@@ -32,7 +31,7 @@
       ]
     },
     {
-      "source": "/:path*(.html)",
+      "source": "/(.*)\\.html",
       "headers": [
         {
           "key": "Cache-Control",
@@ -43,7 +42,7 @@
   ],
   "rewrites": [
     {
-      "source": "/((?!app-v6.js|sw.js|manifest.json|icons/).*)",
+      "source": "/((?!app-v6\\.js|sw\\.js|manifest\\.json|icons/.*).*)",
       "destination": "/index.html"
     }
   ]

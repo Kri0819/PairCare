@@ -1,160 +1,17 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#C4785A" />
-  <link rel="manifest" href="/manifest.json" />
-  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="陪一刻" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <title>陪一刻</title>
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    html,body{height:100%;background:#FAF7F2}
-    body{font-family:sans-serif}
-    #root{min-height:100svh}
-    #loading{
-      position:fixed;inset:0;display:flex;flex-direction:column;
-      align-items:center;justify-content:center;
-      background:linear-gradient(160deg,#FAF7F2 55%,#F5E6DE);
-      gap:20px;z-index:9999;transition:opacity .5s;
-    }
-    #loading h1{font-size:2.4rem;letter-spacing:.12em;color:#231C10;font-weight:400}
-    #loading .dots{display:flex;gap:8px}
-    #loading .dot{
-      width:8px;height:8px;border-radius:50%;
-      background:#C4785A;animation:pulse 1.2s ease-in-out infinite;
-    }
-    #loading .dot:nth-child(2){animation-delay:.2s}
-    #loading .dot:nth-child(3){animation-delay:.4s}
-    @keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
-    #loading.out{opacity:0;pointer-events:none}
-    #crash{
-      display:none;position:fixed;inset:0;background:#FAF7F2;
-      align-items:center;justify-content:center;flex-direction:column;
-      gap:14px;padding:40px;text-align:center;z-index:10000;font-family:sans-serif;
-    }
-    #crash.show{display:flex}
-    #crash h2{font-size:1.2rem;color:#231C10}
-    #crash p{font-size:.85rem;color:#998870;line-height:1.65;max-width:300px}
-    #crash .err{
-      font-family:monospace;font-size:.72rem;color:#C4785A;
-      background:#FDF0EA;padding:8px 12px;border-radius:8px;
-      max-width:320px;word-break:break-all;
-      max-height:80px;overflow:hidden;
-    }
-    #crash button{
-      padding:13px 28px;color:white;border:none;
-      border-radius:10px;font-size:.9rem;cursor:pointer;
-      width:100%;max-width:280px;
-    }
-    #crash .btn1{background:#C4785A}
-    #crash .btn2{background:#998870}
-  </style>
-</head>
-<body>
-
-<div id="loading">
-  <h1>陪一刻</h1>
-  <div class="dots">
-    <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-  </div>
-</div>
-
-<div id="crash">
-  <h2>無法啟動</h2>
-  <p>應用程式發生錯誤。<br>點擊下方按鈕重新啟動。</p>
-  <div class="err" id="crash-msg"></div>
-  <button class="btn1" onclick="location.reload()">重新啟動</button>
-  <button class="btn2" onclick="localStorage.clear();location.reload()">清除資料並重啟</button>
-</div>
-
-<div id="root"></div>
-
-<script>
-  function showCrash(msg) {
-    document.getElementById('loading').classList.add('out');
-    document.getElementById('crash').classList.add('show');
-    if (msg) document.getElementById('crash-msg').textContent = String(msg).slice(0,200);
-  }
-  window.onerror = function(msg, src, line, col, err) {
-    showCrash((err && err.message) ? err.message : msg);
-    return true;
-  };
-  window.addEventListener('unhandledrejection', function(e) {
-    console.error('[陪一刻]', e.reason);
-  });
-  // 5-second hard timeout
-  var _mountTimer = setTimeout(function() {
-    if (!document.getElementById('loading').classList.contains('out')) {
-      showCrash('Timeout: app-v6.js failed to load. Check network.');
-    }
-  }, 5000);
-</script>
-
-<!-- React 18 UMD -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
-
-<!-- App — pre-compiled, no Babel needed -->
-<script src="/app-v6.js?v=6"></script>
-
-<!-- Mount -->
-<script>
-  (function() {
-    clearTimeout(_mountTimer);
-    try {
-      if (typeof window.App === 'undefined')
-        throw new Error('window.App not defined — app-v6.js failed to execute');
-      if (typeof window.ErrorBoundary === 'undefined')
-        throw new Error('window.ErrorBoundary not defined');
-
-      var rootEl = document.getElementById('root');
-      var tree   = React.createElement(
-        window.ErrorBoundary, null,
-        React.createElement(window.App)
-      );
-      ReactDOM.createRoot(rootEl).render(tree);
-
-      var el = document.getElementById('loading');
-      el.classList.add('out');
-      setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 600);
-
-    } catch(e) {
-      console.error('[陪一刻 mount]', e);
-      showCrash(e.message);
-    }
-  })();
-
-  // Service Worker
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-      navigator.serviceWorker.register('/sw.js')
-        .then(function(reg) {
-          console.log('[SW] registered', reg.scope);
-          reg.addEventListener('updatefound', function() {
-            var nw = reg.installing;
-            if (!nw) return;
-            nw.addEventListener('statechange', function() {
-              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-                nw.postMessage({ type: 'SKIP_WAITING' });
-              }
-            });
-          });
-        })
-        .catch(function(e) { console.warn('[SW]', e); });
-
-      navigator.serviceWorker.addEventListener('controllerchange', function() {
-        window.location.reload();
-      });
-    });
-  }
-</script>
-
-</body>
-</html>
+{
+  "name": "陪一刻",
+  "short_name": "陪一刻",
+  "description": "共享用藥紀錄工具",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF7F2",
+  "theme_color": "#C4785A",
+  "lang": "zh-TW",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["health", "lifestyle"],
+  "screenshots": []
+}

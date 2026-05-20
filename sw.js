@@ -1,17 +1,44 @@
-{
-  "name": "陪一刻",
-  "short_name": "陪一刻",
-  "description": "共享用藥紀錄工具",
-  "start_url": "/",
-  "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#FAF7F2",
-  "theme_color": "#C4785A",
-  "lang": "zh-TW",
-  "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ],
-  "categories": ["health", "lifestyle"],
-  "screenshots": []
-}
+/* 陪一刻 Service Worker — v6 */
+var CACHE  = 'peiYike-v6';
+var ASSETS = ['/', '/index.html', '/app-v6.js', '/manifest.json',
+              '/icons/icon-192.png', '/icons/icon-512.png'];
+
+self.addEventListener('install', function(e) {
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(function(c) { return c.addAll(ASSETS); })
+      .then(function() { return self.skipWaiting(); })
+  );
+});
+
+self.addEventListener('activate', function(e) {
+  e.waitUntil(
+    caches.keys().then(function(keys) {
+      return Promise.all(
+        keys.filter(function(k) { return k !== CACHE; })
+            .map(function(k)   { return caches.delete(k); })
+      );
+    }).then(function() { return self.clients.claim(); })
+  );
+});
+
+self.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+self.addEventListener('fetch', function(e) {
+  if (e.request.method !== 'GET') return;
+  if (!e.request.url.startsWith('http')) return;
+  e.respondWith(
+    fetch(e.request).then(function(res) {
+      if (res && res.status === 200) {
+        var clone = res.clone();
+        caches.open(CACHE).then(function(c) { c.put(e.request, clone); });
+      }
+      return res;
+    }).catch(function() {
+      return caches.match(e.request)
+        .then(function(cached) { return cached || caches.match('/index.html'); });
+    })
+  );
+});
