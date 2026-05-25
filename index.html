@@ -8,11 +8,11 @@
   <link rel="apple-touch-icon" href="/icons/icon-180.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="陪一刻" />
+  <meta name="apple-mobile-web-app-title" content="PairCare｜陪一刻" />
   <meta name="mobile-web-app-capable" content="yes" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <title>陪一刻</title>
+  <title>PairCare｜陪一刻</title>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     html,body{height:100%;background:#FAF7F2}
@@ -25,6 +25,7 @@
       gap:20px;z-index:9999;transition:opacity .5s;
     }
     #loading h1{font-size:2.4rem;letter-spacing:.12em;color:#231C10;font-weight:400}
+    #loading .sub{font-size:.75rem;letter-spacing:.2em;color:#C4785A;font-family:sans-serif;margin-top:-12px}
     #loading .dots{display:flex;gap:8px}
     #loading .dot{
       width:8px;height:8px;border-radius:50%;
@@ -45,13 +46,11 @@
     #crash .err{
       font-family:monospace;font-size:.72rem;color:#C4785A;
       background:#FDF0EA;padding:8px 12px;border-radius:8px;
-      max-width:320px;word-break:break-all;
-      max-height:80px;overflow:hidden;
+      max-width:320px;word-break:break-all;max-height:80px;overflow:hidden;
     }
     #crash button{
-      padding:13px 28px;color:white;border:none;
-      border-radius:10px;font-size:.9rem;cursor:pointer;
-      width:100%;max-width:280px;
+      padding:13px 28px;color:white;border:none;border-radius:10px;
+      font-size:.9rem;cursor:pointer;width:100%;max-width:280px;
     }
     #crash .btn1{background:#C4785A}
     #crash .btn2{background:#998870}
@@ -61,6 +60,7 @@
 
 <div id="loading">
   <h1>陪一刻</h1>
+  <div class="sub">PairCare</div>
   <div class="dots">
     <div class="dot"></div><div class="dot"></div><div class="dot"></div>
   </div>
@@ -68,7 +68,7 @@
 
 <div id="crash">
   <h2>無法啟動</h2>
-  <p>應用程式發生錯誤。<br>點擊下方按鈕重新啟動。</p>
+  <p>PairCare 發生錯誤。<br>點擊下方按鈕重新啟動。</p>
   <div class="err" id="crash-msg"></div>
   <button class="btn1" onclick="location.reload()">重新啟動</button>
   <button class="btn2" onclick="localStorage.clear();location.reload()">清除資料並重啟</button>
@@ -87,25 +87,28 @@
     return true;
   };
   window.addEventListener('unhandledrejection', function(e) {
-    console.error('[陪一刻]', e.reason);
+    console.error('[PairCare]', e.reason);
   });
-  // 5-second hard timeout
+  // 8-second timeout (Supabase CDN may be slower)
   var _mountTimer = setTimeout(function() {
     if (!document.getElementById('loading').classList.contains('out')) {
-      showCrash('Timeout: app-v6.js failed to load. Check network.');
+      showCrash('Timeout: scripts failed to load. Check network.');
     }
-  }, 5000);
+  }, 8000);
 </script>
 
-<!-- React 18 UMD -->
+<!-- React 18 UMD — synchronous, must load before app -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 
-<!-- App — pre-compiled, no Babel needed -->
-<script src="/app-v6.js?v=6"></script>
+<!-- Supabase JS — must load before app-v6.js -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin></script>
 
-<!-- Mount -->
-<script>
+<!-- App — pre-compiled plain JS, no Babel, defer so DOM is ready -->
+<script defer src="/app-v8.js?v=8"></script>
+
+<!-- Mount — runs after defer scripts complete -->
+<script defer>
   (function() {
     clearTimeout(_mountTimer);
     try {
@@ -126,7 +129,7 @@
       setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 600);
 
     } catch(e) {
-      console.error('[陪一刻 mount]', e);
+      console.error('[PairCare mount]', e);
       showCrash(e.message);
     }
   })();
