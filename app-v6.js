@@ -1,5 +1,5 @@
 "use strict";
-console.log('[app-v6] start');
+console.log('[PairCare] start v7');
 // ═══════════════════════════════════════════════════════════════════════════════
 // 陪一刻 v6 — Pair-Centered Architecture
 // Data: user + pair + medications + doseLogs, all keyed by pairId
@@ -13,6 +13,32 @@ var _jsxRuntime = {
   jsxs:     React.createElement,
   Fragment: React.Fragment
 };
+
+// ── Supabase Auth Client ─────────────────────────────────────────────────────
+var SUPABASE_URL  = "https://xqjhbobskdgqaopenuos.supabase.co";
+var SUPABASE_ANON = "sb_publishable_hFQFX2jLmi8c3X9n0SnRdw_O6IPv9st";
+var _sbClient = null;
+
+function getSupabase() {
+  if (_sbClient) return _sbClient;
+  try {
+    var sb = window.supabase || (window.supabase_js && window.supabase_js.createClient ? window.supabase_js : null);
+    var createFn = sb && (sb.createClient || (sb.default && sb.default.createClient));
+    if (!createFn) { console.warn('[PairCare] Supabase CDN not ready'); return null; }
+    _sbClient = createFn(SUPABASE_URL, SUPABASE_ANON, {
+      auth: {
+        persistSession:     true,
+        autoRefreshToken:   true,
+        detectSessionInUrl: true,
+        storage:            window.localStorage,
+        storageKey:         'peiYike_sb_session',
+        flowType:           'pkce',
+      }
+    });
+    console.log('[PairCare] Supabase client ready');
+  } catch(e) { console.error('[PairCare] Supabase init:', e); }
+  return _sbClient;
+}
 
 // ─── 1. CONSTANTS ────────────────────────────────────────────────────────────
 var STORAGE_KEY = "peiYike_v6";
@@ -128,7 +154,30 @@ function sanitizeState(s) {
       createdAt:   rawPair.createdAt   || new Date().toISOString(),
     } : null,
     medications:  Array.isArray(s.medications)  ? s.medications.map(sanitizeMed).filter(Boolean) : [],
-    scheduleLog:  s.scheduleLog && typeof s.scheduleLog === "object" ? s.scheduleLog : {},
+    scheduleLog: (function() {
+      var raw = s.scheduleLog && typeof s.scheduleLog === "object" ? s.scheduleLog : {};
+      // Migration: old entries were { takenAt: "HH:MM" } — upgrade to full format
+      var out = {};
+      Object.keys(raw).forEach(function(k) {
+        var entry = raw[k];
+        if (!entry || typeof entry !== "object") return;
+        // If takenAt is already ISO (length > 8), keep as-is
+        // If takenAt is "HH:MM" (legacy), convert to partial record
+        var ta = entry.takenAt || "";
+        if (ta && ta.length <= 5) {
+          // Legacy HH:MM — keep displayTime, takenAt becomes null (no full ISO available)
+          out[k] = { takenAt: null, displayTime: ta, periodId: entry.periodId || null, medicationId: entry.medicationId || null };
+        } else {
+          out[k] = {
+            takenAt:      entry.takenAt      || null,
+            displayTime:  entry.displayTime  || (entry.takenAt ? entry.takenAt.slice(11,16) : null),
+            periodId:     entry.periodId     || null,
+            medicationId: entry.medicationId || null,
+          };
+        }
+      });
+      return out;
+    })(),
     doseLogs:     Array.isArray(s.doseLogs)     ? s.doseLogs     : [],
     doctorVisits: Array.isArray(s.doctorVisits) ? s.doctorVisits : [],
     settings: {
@@ -151,44 +200,64 @@ function loadSavedUser() {
 }
 
 function loadState() {
+  console.log('[PairCare] loadState called');
   try {
-    // Try v6
+    // Always try to get user from backup key first
+    var savedUser = loadSavedUser();
+    console.log('[PairCare] savedUser:', savedUser && savedUser.name);
+
+    // Try v6 full state
     var raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      var clean = sanitizeState(safeJSON(raw));
+      var parsed = safeJSON(raw);
+      var clean  = sanitizeState(parsed);
       if (clean) {
-        if (!clean.user) clean.user = loadSavedUser();
+        // User in full state takes priority; fall back to _user key
+        if (!clean.user && savedUser) clean.user = savedUser;
+        console.log('[PairCare] loaded from v6, user:', clean.user && clean.user.name);
         return clean;
       }
     }
-    // Migrate from v3 — carry over medications, scheduleLog, doctorVisits
-    var old = safeJSON(localStorage.getItem("peiYike_v3"));
-    if (old) {
-      var meds = Array.isArray(old.medications)
-        ? old.medications.map(sanitizeMed).filter(Boolean)
-        : [];
-      var migrated = Object.assign({}, EMPTY_STATE, {
-        medications:  meds,
-        scheduleLog:  old.scheduleLog  || {},
-        doseLogs:     old.doseLogs     || [],
-        doctorVisits: old.doctorVisits || [],
-        settings:     { dayResetHour: (old.settings && old.settings.dayResetHour) || 4, reminderTimes: [] },
-      });
-      migrated.user = loadSavedUser();
-      return migrated;
+
+    // Migrate from v3
+    var oldRaw = localStorage.getItem("peiYike_v3");
+    if (oldRaw) {
+      var old = safeJSON(oldRaw);
+      if (old) {
+        var meds = Array.isArray(old.medications)
+          ? old.medications.map(sanitizeMed).filter(Boolean) : [];
+        var migrated = Object.assign({}, EMPTY_STATE, {
+          medications:  meds,
+          scheduleLog:  old.scheduleLog  || {},
+          doseLogs:     old.doseLogs     || [],
+          doctorVisits: old.doctorVisits || [],
+          settings: { dayResetHour: (old.settings && old.settings.dayResetHour) || 4, reminderTimes: [] },
+        });
+        migrated.user = savedUser;
+        console.log('[PairCare] migrated from v3, user:', migrated.user && migrated.user.name);
+        return migrated;
+      }
     }
+
+    // Fresh start — but still try to recover user
+    var fresh = Object.assign({}, EMPTY_STATE, { user: savedUser });
+    console.log('[PairCare] fresh state, user:', fresh.user && fresh.user.name);
+    return fresh;
   } catch(e) {
-    console.error("[陪一刻 v6] loadState:", e);
+    console.error('[PairCare] loadState error:', e);
+    return Object.assign({}, EMPTY_STATE, { user: loadSavedUser() });
   }
-  return Object.assign({}, EMPTY_STATE, { user: loadSavedUser() });
 }
 
 function saveState(s) {
   try {
     if (!s || typeof s !== "object") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    var serialized = JSON.stringify(s);
+    localStorage.setItem(STORAGE_KEY, serialized);
+    // Always write user to backup key — this is the persistence lifeline
     saveUser(s.user);
-  } catch(e) { console.warn("[陪一刻 v6] saveState:", e); }
+    console.log('[PairCare] saved, user:', s.user && s.user.name, 'pair:', s.pair && s.pair.id);
+  } catch(e) { console.warn('[PairCare] saveState error:', e); }
 }
 
 // ─── 5. NOTIFICATIONS ────────────────────────────────────────────────────────
@@ -822,18 +891,26 @@ var Ico = {
 // screen is derived from state — no separate router needed
 
 window.App = function App() {
-  var _useState     = useState(function() {
+  // Load from localStorage synchronously on first render
+  var _useState = useState(function() {
     try {
       var loaded = loadState();
-      if (loaded && typeof loaded === "object") {
-        if (!loaded.user) loaded.user = loadSavedUser();
-        return loaded;
-      }
-    } catch(e) { console.error("[陪一刻 v6] init:", e); }
-    return Object.assign({}, EMPTY_STATE, { user: loadSavedUser() });
+      if (loaded && typeof loaded === "object") return loaded;
+    } catch(e) { console.error('[PairCare] init error:', e); }
+    return Object.assign({}, EMPTY_STATE);
   });
   var state    = _useState[0];
   var setState = _useState[1];
+
+  // isHydrated: blocks routing until Supabase session check completes
+  var _hydratedState = useState(false);
+  var isHydrated    = _hydratedState[0];
+  var setIsHydrated = _hydratedState[1];
+
+  // sbAuthUser: the raw Supabase auth user object (null = logged out)
+  var _sbState  = useState(null);
+  var sbAuthUser    = _sbState[0];
+  var setSbAuthUser = _sbState[1];
 
   var _tabState = useState("today");
   var tab    = _tabState[0];
@@ -861,14 +938,101 @@ window.App = function App() {
   var firedRef     = useRef({});
   var lastSavedRef = useRef(null);
 
-  // Persist state
+  // ── Supabase session restore on mount ────────────────────────────────────────
   useEffect(function() {
+    var sb = getSupabase();
+    if (!sb) {
+      // Supabase not available — fall back to localStorage-only mode
+      console.warn('[PairCare] No Supabase, using localStorage only');
+      setIsHydrated(true);
+      return;
+    }
+
+    // 1. Check existing session (handles iOS PWA reload)
+    sb.auth.getSession().then(function(result) {
+      var session = result && result.data && result.data.session;
+      if (session && session.user) {
+        console.log('[PairCare] Restored session for:', session.user.email);
+        setSbAuthUser(session.user);
+        // Merge Supabase user identity into app state
+        setState(function(prev) {
+          var next = JSON.parse(JSON.stringify(prev));
+          if (!next.user) {
+            // Build user from Supabase session + any saved local profile
+            var saved = loadSavedUser();
+            next.user = {
+              id:     session.user.id,
+              name:   (saved && saved.name) || session.user.email.split('@')[0],
+              role:   (saved && saved.role) || null,
+              pairId: (saved && saved.pairId) || null,
+              email:  session.user.email,
+            };
+          } else {
+            // Update id/email to match Supabase
+            next.user.id    = session.user.id;
+            next.user.email = session.user.email;
+          }
+          return next;
+        });
+      } else {
+        console.log('[PairCare] No active session');
+      }
+      setIsHydrated(true);
+    }).catch(function(e) {
+      console.error('[PairCare] getSession error:', e);
+      setIsHydrated(true);
+    });
+
+    // 2. Listen for auth changes (login, logout, token refresh)
+    var sub = sb.auth.onAuthStateChange(function(event, session) {
+      console.log('[PairCare] auth event:', event);
+      if (event === 'SIGNED_IN' && session && session.user) {
+        setSbAuthUser(session.user);
+        setState(function(prev) {
+          var next = JSON.parse(JSON.stringify(prev));
+          if (!next.user) {
+            var saved = loadSavedUser();
+            next.user = {
+              id:     session.user.id,
+              name:   (saved && saved.name) || session.user.email.split('@')[0],
+              role:   (saved && saved.role) || null,
+              pairId: (saved && saved.pairId) || null,
+              email:  session.user.email,
+            };
+          } else {
+            next.user.id    = session.user.id;
+            next.user.email = session.user.email;
+          }
+          return next;
+        });
+      } else if (event === 'SIGNED_OUT') {
+        setSbAuthUser(null);
+        setState(function(prev) {
+          var next = JSON.parse(JSON.stringify(prev));
+          next.user = null;
+          return next;
+        });
+      } else if (event === 'TOKEN_REFRESHED' && session && session.user) {
+        setSbAuthUser(session.user);
+      }
+    });
+
+    return function() {
+      if (sub && sub.data && sub.data.subscription) {
+        sub.data.subscription.unsubscribe();
+      }
+    };
+  }, []); // run once on mount
+
+  // Persist state on every change (after hydration)
+  useEffect(function() {
+    if (!isHydrated) return;
     var serialized = JSON.stringify(state);
     if (serialized !== lastSavedRef.current) {
       lastSavedRef.current = serialized;
       saveState(state);
     }
-  }, [state]);
+  }, [state, isHydrated]);
 
   // Clock tick
   useEffect(function() {
@@ -936,7 +1100,7 @@ window.App = function App() {
         if (next.pair && typeof next.pair !== "object") next.pair = null;
         return next;
       } catch(e) {
-        console.error("[陪一刻 v6] update:", e);
+        console.error("[PairCare] update:", e);
         return prev;
       }
     });
@@ -955,6 +1119,36 @@ window.App = function App() {
   var pair = state.pair && typeof state.pair === "object" ? state.pair : null;
 
   // ── Screen routing (state machine) ─────────────────────────────────────────
+  // Wait for hydration before routing — prevents flash-to-login on reload
+  if (!isHydrated) {
+    return _jsxRuntime.jsxs("div", {
+      className: "app",
+      children: [
+        _jsxRuntime.jsx("style", { children: CSS }),
+        _jsxRuntime.jsxs("div", {
+          style: { position:"fixed", inset:0, display:"flex", flexDirection:"column",
+                   alignItems:"center", justifyContent:"center",
+                   background:"linear-gradient(160deg,#FAF7F2 55%,#F5E6DE)", gap:20 },
+          children: [
+            _jsxRuntime.jsx("h1", {
+              style: { fontSize:"2.4rem", letterSpacing:"0.12em",
+                       color:"#231C10", fontWeight:400, fontFamily:"serif" },
+              children: "陪一刻"
+            }),
+            _jsxRuntime.jsxs("div", {
+              style: { display:"flex", gap:8 },
+              children: [
+                _jsxRuntime.jsx("div", { style:{ width:8,height:8,borderRadius:"50%",background:"#C4785A",animation:"pulse 1.2s ease-in-out infinite" } }),
+                _jsxRuntime.jsx("div", { style:{ width:8,height:8,borderRadius:"50%",background:"#C4785A",animation:"pulse 1.2s ease-in-out .2s infinite" } }),
+                _jsxRuntime.jsx("div", { style:{ width:8,height:8,borderRadius:"50%",background:"#C4785A",animation:"pulse 1.2s ease-in-out .4s infinite" } }),
+              ]
+            })
+          ]
+        })
+      ]
+    });
+  }
+
   // No user → onboarding flow
   if (!user) {
     return _jsxRuntime.jsx(OnboardFlow, { update: update, showToast: showToast });
@@ -1062,19 +1256,80 @@ window.App = function App() {
   ]});
 };
 
-// ─── 8. ONBOARD FLOW (name only — no email/magic link per spec) ───────────────
+// ─── 8. ONBOARD FLOW — Supabase Email OTP ───────────────────────────────────
 function OnboardFlow({ update, showToast }) {
-  var _s = useState("name"); var step = _s[0]; var setStep = _s[1];
-  var _n = useState(""); var name = _n[0]; var setName = _n[1];
-  var _r = useState(null); var role = _r[0]; var setRole = _r[1];
+  // step: "email" | "otp" | "name" | "role"
+  var _s   = useState("email"); var step = _s[0]; var setStep = _s[1];
+  var _e   = useState("");      var email = _e[0]; var setEmail = _e[1];
+  var _o   = useState("");      var otp   = _o[0]; var setOtp   = _o[1];
+  var _n   = useState("");      var name  = _n[0]; var setName  = _n[1];
+  var _err = useState("");      var err   = _err[0]; var setErr = _err[1];
+  var _ld  = useState(false);   var loading = _ld[0]; var setLoading = _ld[1];
 
-  function proceed() {
-    if (!name.trim()) return;
-    // Store name + role, move to pair setup
-    var newUser = { id: uid(), name: name.trim(), role: role, pairId: null };
-    saveUser(newUser);
-    update(function(s) { s.user = newUser; });
+  function sendOTP() {
+    if (!email.trim()) { setErr("請輸入 Email"); return; }
+    var sb = getSupabase();
+    if (!sb) { setErr("Supabase 尚未準備好，請重新整理"); return; }
+    setLoading(true); setErr("");
+    sb.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { shouldCreateUser: true }
+    }).then(function(res) {
+      setLoading(false);
+      if (res.error) { setErr(res.error.message); return; }
+      setStep("otp");
+    }).catch(function(e) {
+      setLoading(false);
+      setErr(e.message || "發送失敗");
+    });
   }
+
+  function verifyOTP() {
+    if (!otp.trim()) { setErr("請輸入驗證碼"); return; }
+    var sb = getSupabase();
+    if (!sb) { setErr("Supabase 尚未準備好"); return; }
+    setLoading(true); setErr("");
+    sb.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token: otp.trim(),
+      type:  "email"
+    }).then(function(res) {
+      setLoading(false);
+      if (res.error) { setErr(res.error.message || "驗證碼錯誤"); return; }
+      // Supabase SIGNED_IN event will update state via onAuthStateChange
+      // But we also move to name step if user has no name yet
+      var savedName = "";
+      try {
+        var saved = safeJSON(localStorage.getItem(STORAGE_KEY + "_user"));
+        if (saved && saved.name) savedName = saved.name;
+      } catch(e) {}
+      if (savedName) {
+        setStep("role");
+        setName(savedName);
+      } else {
+        setStep("name");
+      }
+    }).catch(function(e) {
+      setLoading(false);
+      setErr(e.message || "驗證失敗");
+    });
+  }
+
+  function proceed(chosenRole) {
+    if (!name.trim()) return;
+    // onAuthStateChange already set sbAuthUser; we just need to set name+role
+    update(function(s) {
+      if (!s.user) s.user = {};
+      s.user.name = name.trim();
+      s.user.role = chosenRole;
+      // Save immediately
+      try {
+        localStorage.setItem(STORAGE_KEY + "_user", JSON.stringify(s.user));
+      } catch(e) {}
+    });
+  }
+
+  var cardStyle = { width:"100%" };
 
   return _jsxRuntime.jsxs("div", { className:"app", children:[
     _jsxRuntime.jsx("style", { children: CSS }),
@@ -1083,38 +1338,90 @@ function OnboardFlow({ update, showToast }) {
         _jsxRuntime.jsx("h1", { children:"陪一刻" }),
         _jsxRuntime.jsx("p",  { children:"CARE RELATIONSHIP LOG" }),
       ]}),
-      step === "name" && _jsxRuntime.jsxs("div", { className:"onboard-card", children:[
-        _jsxRuntime.jsx("h2", { children:"你的名字" }),
+
+      // Step 1: Email
+      step === "email" && _jsxRuntime.jsxs("div", { className:"onboard-card", style:cardStyle, children:[
+        _jsxRuntime.jsx("h2", { children:"登入 / 註冊" }),
         _jsxRuntime.jsxs("div", { className:"field", children:[
-          _jsxRuntime.jsx("label", { children:"請輸入名字" }),
+          _jsxRuntime.jsx("label", { children:"Email" }),
           _jsxRuntime.jsx("input", {
-            type:"text", value:name, autoFocus:true,
-            placeholder:"例：小明",
+            type:"email", value:email, autoFocus:true,
+            placeholder:"your@email.com",
+            onChange: function(e){ setEmail(e.target.value); setErr(""); },
+            onKeyDown: function(e){ if(e.key==="Enter") sendOTP(); }
+          }),
+        ]}),
+        err && _jsxRuntime.jsx("p", { style:{color:"var(--rose)",fontSize:"0.78rem",marginBottom:8}, children:err }),
+        _jsxRuntime.jsx("button", {
+          className:"btn btn-primary",
+          onClick: sendOTP,
+          children: loading ? "發送中…" : "傳送驗證碼"
+        }),
+        _jsxRuntime.jsx("p", {
+          style:{fontSize:"0.72rem",color:"var(--ink-muted)",textAlign:"center",marginTop:12,lineHeight:1.6},
+          children:"我們會寄送一次性驗證碼到你的 Email"
+        }),
+      ]}),
+
+      // Step 2: OTP
+      step === "otp" && _jsxRuntime.jsxs("div", { className:"onboard-card", style:cardStyle, children:[
+        _jsxRuntime.jsx("h2", { children:"輸入驗證碼" }),
+        _jsxRuntime.jsx("p", {
+          style:{fontSize:"0.82rem",color:"var(--ink-muted)",marginBottom:16,lineHeight:1.6},
+          children:"驗證碼已寄到 " + email
+        }),
+        _jsxRuntime.jsxs("div", { className:"field", children:[
+          _jsxRuntime.jsx("label", { children:"6 位數驗證碼" }),
+          _jsxRuntime.jsx("input", {
+            type:"text", value:otp, autoFocus:true,
+            maxLength:8, placeholder:"123456",
+            style:{textAlign:"center",fontSize:"1.6rem",letterSpacing:"0.2em",fontFamily:"'DM Mono',monospace"},
+            onChange: function(e){ setOtp(e.target.value.replace(/[^0-9]/g,"")); setErr(""); },
+            onKeyDown: function(e){ if(e.key==="Enter") verifyOTP(); }
+          }),
+        ]}),
+        err && _jsxRuntime.jsx("p", { style:{color:"var(--rose)",fontSize:"0.78rem",marginBottom:8}, children:err }),
+        _jsxRuntime.jsx("button", {
+          className:"btn btn-primary",
+          onClick: verifyOTP,
+          children: loading ? "驗證中…" : "確認"
+        }),
+        _jsxRuntime.jsx("button", {
+          className:"btn btn-ghost",
+          onClick: function(){ setStep("email"); setOtp(""); setErr(""); },
+          children:"← 重新輸入 Email"
+        }),
+      ]}),
+
+      // Step 3: Name
+      step === "name" && _jsxRuntime.jsxs("div", { className:"onboard-card", style:cardStyle, children:[
+        _jsxRuntime.jsx("h2", { children:"你叫什麼名字？" }),
+        _jsxRuntime.jsxs("div", { className:"field", children:[
+          _jsxRuntime.jsx("label", { children:"名字" }),
+          _jsxRuntime.jsx("input", {
+            type:"text", value:name, autoFocus:true, placeholder:"例：小明",
             onChange: function(e){ setName(e.target.value); }
           }),
         ]}),
         _jsxRuntime.jsx("button", {
           className:"btn btn-primary",
-          onClick: function(){ if (name.trim()) setStep("role"); },
+          onClick: function(){ if(name.trim()) setStep("role"); },
           children:"下一步"
         }),
       ]}),
-      step === "role" && _jsxRuntime.jsxs("div", { className:"onboard-card", children:[
-        _jsxRuntime.jsxs("h2", { children:["嗨 ", name,"，你的身份是？"] }),
+
+      // Step 4: Role
+      step === "role" && _jsxRuntime.jsxs("div", { className:"onboard-card", style:cardStyle, children:[
+        _jsxRuntime.jsxs("h2", { children:["嗨 ", name || "你好", "，你的身份是？"] }),
         _jsxRuntime.jsx("button", {
           className:"btn btn-primary",
-          onClick: function(){ setRole("patient"); proceed(); },
+          onClick: function(){ proceed("patient"); },
           children:"我是吃藥者（建立紀錄）"
         }),
         _jsxRuntime.jsx("button", {
           className:"btn btn-secondary",
-          onClick: function(){ setRole("caregiver"); proceed(); },
+          onClick: function(){ proceed("caregiver"); },
           children:"我是陪同者（加入紀錄）"
-        }),
-        _jsxRuntime.jsx("button", {
-          className:"btn btn-ghost",
-          onClick: function(){ setStep("name"); },
-          children:"← 返回"
         }),
       ]}),
     ]}),
@@ -1401,15 +1708,20 @@ function TodayPage({
 
   function markPeriodTaken(group) {
     if (isViewer) return;
-    var takenAt = nowHHMM();
-    update(s => {
-      group.meds.forEach(({
-        key,
-        sched,
-        med
-      }) => {
+    var now_iso = new Date().toISOString();
+    var now_hhmm = now_iso.slice(11, 16); // "HH:MM" in UTC — display only
+    try { now_hhmm = new Date().toTimeString().slice(0, 5); } catch(e) {}
+    update(function(s) {
+      group.meds.forEach(function(item) {
+        var key  = item.key;
+        var sched = item.sched;
+        var med   = item.med;
+        // Full record: takenAt (ISO), displayTime (HH:MM local), periodId, medicationId
         s.scheduleLog[key] = {
-          takenAt
+          takenAt:      now_iso,
+          displayTime:  now_hhmm,
+          periodId:     sched.periodId,
+          medicationId: med.id,
         };
         var m = s.medications.find(function(m){ return m.id === med.id; });
         if (m) m.remainingCount = Math.max(0, (m.remainingCount || 0) - sched.dose);
@@ -1425,7 +1737,7 @@ function TodayPage({
         sched,
         med
       }) => {
-        if ((s.scheduleLog[key] && s.scheduleLog[key].takenAt)) {
+        if ((s.scheduleLog[key] && (s.scheduleLog[key].takenAt || s.scheduleLog[key].displayTime))) {
           var m = s.medications.find(function(m){ return m.id === med.id; });
           if (m) m.remainingCount = Math.min(m.totalCount, (m.remainingCount || 0) + sched.dose);
         }
@@ -1526,6 +1838,10 @@ function TodayPage({
         var firstTakenAt = group.meds.map(({
           key
         }) => ((state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key] && (state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key].takenAt)).filter(Boolean)[0];
+        var firstDisplayTime = group.meds.map(function(item) {
+          var log = safeLog[item.key];
+          return log && (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : null));
+        }).filter(Boolean)[0];
         return (0, _jsxRuntime.jsxs)("div", {
           className: "period-group",
           children: [(0, _jsxRuntime.jsxs)("div", {
@@ -1561,7 +1877,9 @@ function TodayPage({
                     })]
                   }), (0, _jsxRuntime.jsx)("div", {
                     className: "period-med-check",
-                    children: log && log.takenAt ? "✅" : "○"
+                    children: log && (log.takenAt || log.displayTime)
+                      ? ("✅ " + (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : "")))
+                      : "○"
                   })]
                 }, key);
               })
@@ -1569,14 +1887,14 @@ function TodayPage({
               className: "period-footer " + allDone ? "done" : isLate ? "late" : "",
               children: [(0, _jsxRuntime.jsx)("div", {
                 className: "period-footer-label",
-                children: allDone ? "✓ 已服藥 " + firstTakenAt || "" : isLate ? "⚠ 已超過 " + nowMins - tMins + " 分鐘" : isNow ? "⏰ 現在服藥時間" : ""
+                children: (allDone ? ("✓ 已服藥 " + (firstDisplayTime || firstTakenAt || "")) : (isLate ? ("⚠ 已超過 " + (nowMins - tMins) + " 分鐘") : (isNow ? "⏰ 現在服藥時間" : "")))
               }), !isViewer && (allDone ? (0, _jsxRuntime.jsx)("button", {
                 className: "btn-undo",
-                onClick: () => undoPeriod(group),
+                onClick: function(){ undoPeriod(group); },
                 children: "\u64A4\u92B7"
               }) : (0, _jsxRuntime.jsx)("button", {
                 className: "btn-take-period",
-                onClick: () => markPeriodTaken(group),
+                onClick: function(){ markPeriodTaken(group); },
                 children: "\u5DF2\u670D\u7528"
               }))]
             })]
@@ -1975,7 +2293,7 @@ function AddMedModal({
   var [schedules, setSchedules] = useState([]);
   return (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
-    onClick: e => e.target === e.currentTarget && onClose(),
+    onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
     children: (0, _jsxRuntime.jsxs)("div", {
       className: "modal",
       children: [(0, _jsxRuntime.jsxs)("div", {
@@ -2098,7 +2416,7 @@ function AddVisitModal({
   }
   return (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
-    onClick: e => e.target === e.currentTarget && onClose(),
+    onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
     children: (0, _jsxRuntime.jsxs)("div", {
       className: "modal",
       children: [(0, _jsxRuntime.jsxs)("div", {
@@ -2333,7 +2651,7 @@ function SettingsModal({
   }
   return (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
-    onClick: e => e.target === e.currentTarget && onClose(),
+    onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
     children: (0, _jsxRuntime.jsxs)("div", {
       className: "modal",
       children: [(0, _jsxRuntime.jsxs)("div", {
@@ -2533,8 +2851,10 @@ function ProfileModal({
 }) {
   var u = state.currentUser;
   function logout() {
-    // Clear from both state and localStorage backup
-    try { localStorage.removeItem("peiYike_v3_user"); } catch(e) {}
+    var sb = getSupabase();
+    if (sb) { sb.auth.signOut().catch(function(e){ console.warn('[PairCare] signOut:', e); }); }
+    try { localStorage.removeItem(STORAGE_KEY + "_user"); } catch(e) {}
+    try { localStorage.removeItem("peiYike_sb_session"); } catch(e) {}
     update(function(s) { s.user = null; });
     onClose();
   }
@@ -2545,7 +2865,7 @@ function ProfileModal({
   }
   return (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
-    onClick: e => e.target === e.currentTarget && onClose(),
+    onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
     children: (0, _jsxRuntime.jsxs)("div", {
       className: "modal",
       children: [(0, _jsxRuntime.jsxs)("div", {
@@ -2622,4 +2942,4 @@ function ProfileModal({
 // Explicit global exports — required for index.html mount
 if (typeof App !== "undefined") window.App = App;
 if (typeof ErrorBoundary !== "undefined") window.ErrorBoundary = ErrorBoundary;
-console.log('[app-v6] mounted', typeof window.App, typeof window.ErrorBoundary);
+console.log('[PairCare] mounted v7', typeof window.App, typeof window.ErrorBoundary);
