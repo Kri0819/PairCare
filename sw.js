@@ -1,16 +1,16 @@
 /* PairCare｜陪一刻 — Service Worker v7 */
-var CACHE  = 'PairCare-v7';
+var CACHE  = 'PairCare-v8';
 var ASSETS = [
   '/',
   '/index.html',
-  '/app-v6.js',
+  '/app-v8.js',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png'
 ];
 
 self.addEventListener('install', function(e) {
-  console.log('[SW PairCare-v7] installing');
+  console.log('[SW PairCare-v8] installing');
   e.waitUntil(
     caches.open(CACHE)
       .then(function(c) { return c.addAll(ASSETS); })
@@ -19,7 +19,7 @@ self.addEventListener('install', function(e) {
 });
 
 self.addEventListener('activate', function(e) {
-  console.log('[SW PairCare-v7] activating — clearing old caches');
+  console.log('[SW PairCare-v8] activating — clearing old caches');
   e.waitUntil(
     caches.keys().then(function(keys) {
       return Promise.all(
