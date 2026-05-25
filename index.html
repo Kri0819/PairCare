@@ -1096,7 +1096,10 @@ var Ico = {
 //                → (has role, no pair) → PAIR_SETUP
 //                → (paired) → HOME
 
-window.App = function App() {
+var useState = React.useState;
+var useRef = React.useRef;
+  
+  window.App = function App() {
 
   // ── State ────────────────────────────────────────────────────────────────
   var _st = useState(function() {
