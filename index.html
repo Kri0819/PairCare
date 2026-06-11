@@ -160,7 +160,8 @@ var EMPTY_STATE = {
   doctorVisits: [],
   settings: {
     dayResetHour:  4,
-    reminderTimes: [],
+    reminderTimes: [],          // legacy, kept for migration
+    reminderMinutesBefore: [10], // minutes before scheduled dose
     periodTimes: {
       breakfast_before: "07:30",
       breakfast_after:  "08:00",
@@ -331,6 +332,9 @@ function sanitizeState(s) {
       return {
         dayResetHour:  Number(ss.dayResetHour)  || 4,
         reminderTimes: Array.isArray(ss.reminderTimes) ? ss.reminderTimes : [],
+        reminderMinutesBefore: Array.isArray(ss.reminderMinutesBefore)
+          ? ss.reminderMinutesBefore.filter(function(n){ return typeof n==='number' && n>=0; })
+          : [10],
         periodTimes:   merged,
       };
     })(),
@@ -1301,31 +1305,46 @@ window.App = function App() {
     function check() {
       var date = getLogicalDate(settings.dayResetHour || 4);
       var nowM = now.getHours() * 60 + now.getMinutes();
+      var minutesBefore = (settings.reminderMinutesBefore && settings.reminderMinutesBefore.length)
+        ? settings.reminderMinutesBefore
+        : [10]; // default: 10 minutes before
+
       safeMeds.filter(function(m) { return m && m.status === "active"; }).forEach(function(med) {
         (med.schedules || []).forEach(function(sched) {
-          var key  = doseKey(date, med.id, sched.periodId);
-          var log  = safeLog[key];
-          if (log) return;
-          var t    = toMins(periodTime(sched));
-          var diff = nowM - t;
-          var lbl  = PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].label;
+          var key     = doseKey(date, med.id, sched.periodId);
+          var log     = safeLog[key];
+          if (log) return; // already taken
+
+          var schedM  = toMins(periodTime(sched, settings.periodTimes));
+          var diff    = nowM - schedM; // positive = past scheduled time
+          var lbl     = PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].label;
+
+          // Fire each "X minutes before" reminder
+          minutesBefore.forEach(function(mins) {
+            var fireKey = key + "_before_" + mins;
+            // diff == -mins means we are exactly `mins` minutes before scheduled time
+            var minsUntil = schedM - nowM; // positive = future
+            if (minsUntil >= mins && minsUntil < mins + 2 && !firedRef.current[fireKey]) {
+              firedRef.current[fireKey] = true;
+              notify(
+                "PairCare｜" + mins + " 分鐘後吃藥",
+                (lbl || "") + " 還有 " + mins + " 分鐘，準備吃 " + med.name
+              );
+            }
+          });
+
+          // Also fire at scheduled time (diff 0-2 min)
           if (diff >= 0 && diff < 2 && !firedRef.current[key + "_due"]) {
             firedRef.current[key + "_due"] = true;
             notify("PairCare｜服藥提醒", "現在是" + (lbl || "") + "用藥時間，記得吃 " + med.name);
           }
+
+          // Late reminder: 90 min overdue
           if (diff >= 90 && !firedRef.current[key + "_late"]) {
             firedRef.current[key + "_late"] = true;
             notify("PairCare｜還沒吃藥", med.name + " 超過 90 分鐘未記錄");
           }
         });
-      });
-      (settings.reminderTimes || []).forEach(function(rt) {
-        var fk   = "r_" + getLogicalDate(settings.dayResetHour || 4) + "_" + rt;
-        var diff = now.getHours() * 60 + now.getMinutes() - toMins(rt);
-        if (diff >= 0 && diff < 2 && !firedRef.current[fk]) {
-          firedRef.current[fk] = true;
-          notify("PairCare｜該吃藥了", "記得按時服藥 💊");
-        }
       });
     }
     check();
@@ -2809,243 +2828,220 @@ function SettingsModal({
   notifOk,
   askNotif
 }) {
-  var hr = state.settings && state.settings.dayResetHour || 4;
-  var reminderTimes = state.settings && state.settings.reminderTimes || [];
-  function addReminderTime() {
-    var t = "08:00";
-    update(s => {
-      s.settings.reminderTimes = [...(s.settings.reminderTimes || []), t];
+  var hr = (state.settings && state.settings.dayResetHour) || 4;
+  var minutesBefore = (state.settings && Array.isArray(state.settings.reminderMinutesBefore))
+    ? state.settings.reminderMinutesBefore : [10];
+
+  // Common preset options
+  var PRESET_MINS = [5, 10, 15, 20, 30];
+
+  function toggleMinute(mins) {
+    update(function(s) {
+      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
+      if (cur.includes(mins)) {
+        s.settings.reminderMinutesBefore = cur.filter(function(m){ return m !== mins; });
+      } else {
+        s.settings.reminderMinutesBefore = cur.concat([mins]).sort(function(a,b){ return a-b; });
+      }
     });
   }
-  function updateReminderTime(idx, val) {
-    update(s => {
-      var arr = [...(s.settings.reminderTimes || [])];
-      arr[idx] = val;
-      s.settings.reminderTimes = arr;
+
+  function addCustomMinute() {
+    var val = parseInt(window.prompt('提前幾分鐘提醒？（1-120）', ''), 10);
+    if (!val || val < 1 || val > 120) return;
+    update(function(s) {
+      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
+      if (!cur.includes(val)) {
+        s.settings.reminderMinutesBefore = cur.concat([val]).sort(function(a,b){ return a-b; });
+      }
     });
   }
-  function removeReminderTime(idx) {
-    update(s => {
-      s.settings.reminderTimes = (s.settings.reminderTimes || []).filter((_, i) => i !== idx);
+
+  function removeMinute(mins) {
+    update(function(s) {
+      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
+      s.settings.reminderMinutesBefore = cur.filter(function(m){ return m !== mins; });
     });
   }
+
+  // notifOk + can decline
+  function handleNotifToggle() {
+    if (notifOk) {
+      // User wants to turn off — we can't revoke permission programmatically,
+      // but we store a local "muted" flag
+      update(function(s) { s.settings.notifMuted = true; });
+      showToast('提醒已靜音。如需完全關閉請至瀏覽器設定。');
+    } else {
+      askNotif();
+    }
+  }
+
+  var notifMuted = state.settings && state.settings.notifMuted;
+  var notifActive = notifOk && !notifMuted;
+
+  var labelStyle = {
+    fontSize:"0.75rem", fontWeight:600, color:"var(--ink-muted)",
+    letterSpacing:"0.12em", textTransform:"uppercase",
+    fontFamily:"'DM Mono',monospace", marginBottom:10
+  };
+  var cardStyle = {
+    background:"white", borderRadius:12,
+    border:"1.5px solid var(--border)", padding:"0 16px", marginBottom:12
+  };
+
   return (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
     onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
     children: (0, _jsxRuntime.jsxs)("div", {
       className: "modal",
-      children: [(0, _jsxRuntime.jsxs)("div", {
-        className: "modal-top",
-        children: [(0, _jsxRuntime.jsx)("div", {
-          className: "modal-handle"
-        }), (0, _jsxRuntime.jsx)("h3", {
-          children: "\u8A2D\u5B9A"
-        })]
-      }), (0, _jsxRuntime.jsxs)("div", {
-        className: "modal-scroll",
-        children: [(0, _jsxRuntime.jsxs)("div", {
-          style: {
-            marginBottom: 20
-          },
-          children: [(0, _jsxRuntime.jsx)("div", {
-            style: {
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: "var(--ink-muted)",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              fontFamily: "'DM Mono',monospace",
-              marginBottom: 10
-            },
-            children: "\u670D\u85E5\u63D0\u9192\u901A\u77E5"
-          }), (0, _jsxRuntime.jsx)("div", {
-            style: {
-              background: "white",
-              borderRadius: 12,
-              border: "1.5px solid var(--border)",
-              padding: "0 16px",
-              marginBottom: 10
-            },
-            children: (0, _jsxRuntime.jsxs)("div", {
-              className: "settings-row",
-              children: [(0, _jsxRuntime.jsxs)("div", {
-                children: [(0, _jsxRuntime.jsx)("div", {
-                  className: "settings-label",
-                  children: "\u63A8\u64AD\u901A\u77E5"
-                }), (0, _jsxRuntime.jsx)("div", {
-                  className: "settings-sub",
-                  children: typeof Notification === "undefined" ? "此裝置不支援通知" : Notification.permission === "denied" ? "⚠ 已被封鎖，請至瀏覽器設定手動開啟" : notifOk ? "已開啟" : "尚未開啟"
-                })]
-              }), notifOk ? (0, _jsxRuntime.jsx)("span", {
-                style: {
-                  fontSize: "1.3rem"
-                },
-                children: "\u2705"
-              }) : typeof Notification !== "undefined" && Notification.permission !== "denied" && (0, _jsxRuntime.jsx)("button", {
+      children: [
+        (0, _jsxRuntime.jsxs)("div", { className:"modal-top", children:[
+          (0, _jsxRuntime.jsx)("div", { className:"modal-handle" }),
+          (0, _jsxRuntime.jsx)("h3", { children:"設定" }),
+        ]}),
+        (0, _jsxRuntime.jsxs)("div", { className:"modal-scroll", children:[
+
+          // ── 推播通知 on/off ────────────────────────────────────────────────
+          (0, _jsxRuntime.jsx)("div", { style:labelStyle, children:"服藥提醒通知" }),
+          (0, _jsxRuntime.jsx)("div", { style:cardStyle, children:
+            (0, _jsxRuntime.jsxs)("div", { className:"settings-row", children:[
+              (0, _jsxRuntime.jsxs)("div", { children:[
+                (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"推播通知" }),
+                (0, _jsxRuntime.jsx)("div", { className:"settings-sub",
+                  children: (function(){
+                    try {
+                      if (typeof Notification === "undefined") return "此裝置不支援通知";
+                      if (Notification.permission === "denied") return "⚠ 已被瀏覽器封鎖，請至設定手動開啟";
+                      if (notifActive) return "已開啟";
+                      if (notifOk && notifMuted) return "已靜音（點擊重新開啟）";
+                      return "尚未開啟";
+                    } catch(e){ return ""; }
+                  })()
+                }),
+              ]}),
+              // Toggle button — always shown, allows turning off
+              (0, _jsxRuntime.jsx)("button", {
                 className: "btn btn-sm",
                 style: {
-                  background: "var(--sage)",
-                  color: "white",
-                  border: "none",
-                  flexShrink: 0
+                  background: notifActive ? "var(--rose)" : "var(--sage)",
+                  color:"white", border:"none", flexShrink:0,
+                  minWidth:60, borderRadius:8, padding:"6px 14px",
+                  fontSize:"0.82rem", cursor:"pointer",
+                  fontFamily:"'Noto Serif TC',serif",
                 },
-                onClick: askNotif,
-                children: "\u958B\u555F"
-              })]
-            })
-          }), (0, _jsxRuntime.jsx)("div", {
-            style: {
-              fontSize: "0.78rem",
-              color: "var(--ink-light)",
-              marginBottom: 8,
-              fontWeight: 500
-            },
-            children: "\u6BCF\u65E5\u63D0\u9192\u6642\u9593"
-          }), (0, _jsxRuntime.jsx)("div", {
-            style: {
-              fontSize: "0.72rem",
-              color: "var(--ink-muted)",
-              marginBottom: 10,
-              lineHeight: 1.5
-            },
-            children: "\u5230\u6642\u9593\u81EA\u52D5\u63A8\u64AD\u300C\u966A\u4E00\u523B\uFF5C\u8A72\u5403\u85E5\u4E86\u300D\uFF0C\u53EF\u8A2D\u5B9A\u591A\u7D44\u3002"
-          }), reminderTimes.map((t, idx) => (0, _jsxRuntime.jsxs)("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 8
-            },
-            children: [(0, _jsxRuntime.jsx)("input", {
-              type: "time",
-              value: t,
-              style: {
-                flex: 1,
-                marginTop: 0
-              },
-              onChange: e => updateReminderTime(idx, e.target.value)
-            }), (0, _jsxRuntime.jsx)("button", {
-              className: "btn-icon",
-              onClick: () => removeReminderTime(idx),
-              style: {
-                flexShrink: 0
-              },
-              children: (0, _jsxRuntime.jsx)("svg", {
-                viewBox: "0 0 24 24",
-                fill: "none",
-                stroke: "currentColor",
-                strokeWidth: "2.2",
-                style: {
-                  width: 18,
-                  height: 18
-                },
-                children: (0, _jsxRuntime.jsx)("path", {
-                  d: "M18 6L6 18M6 6l12 12"
-                })
-              })
-            })]
-          }, idx)), (0, _jsxRuntime.jsx)("button", {
-            className: "btn btn-secondary",
-            style: {
-              marginTop: 4
-            },
-            onClick: addReminderTime,
-            children: "\uFF0B \u65B0\u589E\u63D0\u9192\u6642\u9593"
-          }), reminderTimes.length > 0 && !notifOk && (0, _jsxRuntime.jsx)("p", {
-            style: {
-              fontSize: "0.72rem",
-              color: "var(--rose)",
-              marginTop: 10,
-              lineHeight: 1.5
-            },
-            children: "\u26A0 \u8ACB\u5148\u958B\u555F\u63A8\u64AD\u901A\u77E5\uFF0C\u63D0\u9192\u624D\u80FD\u6B63\u5E38\u904B\u4F5C\u3002"
-          })]
-        }), (0, _jsxRuntime.jsxs)("div", {
-          style: {
-            marginBottom: 20
-          },
-          children: [(0, _jsxRuntime.jsx)("div", {
-            style: {
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: "var(--ink-muted)",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              fontFamily: "'DM Mono',monospace",
-              marginBottom: 10
-            },
-            children: "\u65E5\u671F\u8A2D\u5B9A"
-          }), (0, _jsxRuntime.jsx)("div", {
-            style: {
-              background: "white",
-              borderRadius: 12,
-              border: "1.5px solid var(--border)",
-              padding: "0 16px"
-            },
-            children: (0, _jsxRuntime.jsxs)("div", {
-              className: "settings-row",
-              children: [(0, _jsxRuntime.jsxs)("div", {
-                children: [(0, _jsxRuntime.jsx)("div", {
-                  className: "settings-label",
-                  children: "\u63DB\u65E5\u6642\u9593"
-                }), (0, _jsxRuntime.jsx)("div", {
-                  className: "settings-sub",
-                  children: "\u5E7E\u9EDE\u4EE5\u524D\u4ECD\u7B97\u524D\u4E00\u5929\uFF08\u9810\u8A2D 4:00\uFF09"
-                })]
-              }), (0, _jsxRuntime.jsx)("input", {
-                type: "number",
-                min: 0,
-                max: 11,
-                value: hr,
-                style: {
-                  width: 64,
-                  marginTop: 0,
-                  textAlign: "center",
-                  flexShrink: 0
-                },
-                onChange: e => update(s => {
-                  s.settings.dayResetHour = Number(e.target.value);
-                })
-              })]
-            })
-          })]
-        }), (0, _jsxRuntime.jsxs)("div", {
-          style:{marginTop:20},
-          children:[
-            (0, _jsxRuntime.jsx)("div", {
-              style:{fontSize:"0.72rem",fontWeight:600,color:"var(--ink-muted)",
-                     letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono',monospace",marginBottom:10},
-              children: "\u670d\u85e5\u6642\u6bb5\u9810\u8a2d\u6642\u9593"
+                onClick: handleNotifToggle,
+                children: notifActive ? "關閉" : "開啟",
+              }),
+            ]})
+          }),
+
+          // ── 提前幾分鐘提醒 ────────────────────────────────────────────────
+          notifActive && (0, _jsxRuntime.jsxs)("div", { style:{marginBottom:20}, children:[
+            (0, _jsxRuntime.jsx)("div", { style:labelStyle, children:"吃藥前幾分鐘提醒" }),
+            (0, _jsxRuntime.jsx)("p", {
+              style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:12,lineHeight:1.55},
+              children:"可選多個，每次吃藥前分別提醒"
             }),
-            (0, _jsxRuntime.jsx)("div", { className:"period-time-grid",
-              children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
-                var pt2 = (state.settings && state.settings.periodTimes) || {};
-                var curT = pt2[p.id] || p.defaultTime;
-                return (0, _jsxRuntime.jsxs)("div", { className:"period-time-row", key:p.id, children:[
-                  (0, _jsxRuntime.jsx)("span", { className:"period-time-icon", children: p.icon }),
-                  (0, _jsxRuntime.jsx)("span", { className:"period-time-label", children: p.label }),
-                  (0, _jsxRuntime.jsx)("input", {
-                    type:"time", value:curT,
-                    style:{width:100,marginTop:0,padding:"6px 10px",fontSize:"0.85rem"},
-                    onChange: function(e) {
-                      var v = e.target.value;
-                      update(function(s) {
-                        if (!s.settings.periodTimes) s.settings.periodTimes = {};
-                        s.settings.periodTimes[p.id] = v;
-                      });
-                    }
+
+            // Preset pills
+            (0, _jsxRuntime.jsx)("div", { className:"period-pills", style:{marginBottom:8}, children:
+              PRESET_MINS.map(function(mins) {
+                var active = minutesBefore.includes(mins);
+                return (0, _jsxRuntime.jsx)("button", {
+                  type:"button",
+                  className: "period-pill" + (active ? " selected" : ""),
+                  onClick: function(){ toggleMinute(mins); },
+                  children: mins + " 分鐘前"
+                }, mins);
+              })
+            }),
+
+            // Custom minutes (not in preset)
+            (minutesBefore.filter(function(m){ return !PRESET_MINS.includes(m); })).map(function(mins) {
+              return (0, _jsxRuntime.jsxs)("div", {
+                style:{display:"flex",alignItems:"center",gap:8,marginBottom:8},
+                children:[
+                  (0, _jsxRuntime.jsx)("span", {
+                    style:{fontSize:"0.85rem",color:"var(--ink)",flex:1},
+                    children: mins + " 分鐘前（自訂）"
                   }),
-                ]});
-              })
+                  (0, _jsxRuntime.jsx)("button", {
+                    className:"btn-icon",
+                    onClick: function(){ removeMinute(mins); },
+                    style:{flexShrink:0},
+                    children: (0, _jsxRuntime.jsx)("svg", {
+                      viewBox:"0 0 24 24", fill:"none", stroke:"currentColor",
+                      strokeWidth:"2.2", style:{width:18,height:18},
+                      children:(0, _jsxRuntime.jsx)("path", {d:"M18 6L6 18M6 6l12 12"})
+                    })
+                  }),
+                ]
+              }, mins);
             }),
-          ]
-        }), (0, _jsxRuntime.jsx)("button", {
-          className: "btn btn-secondary",
-          style: { marginTop: 16 },
-          onClick: onClose,
-          children: "\u95DC\u9589"
-        })]
-      })]
+
+            (0, _jsxRuntime.jsx)("button", {
+              className:"btn btn-secondary",
+              style:{marginTop:4},
+              onClick: addCustomMinute,
+              children:"＋ 自訂分鐘數"
+            }),
+
+            minutesBefore.length === 0 && (0, _jsxRuntime.jsx)("p", {
+              style:{fontSize:"0.72rem",color:"var(--rose)",marginTop:8},
+              children:"⚠ 未選擇任何提醒時間"
+            }),
+          ]}),
+
+          // ── 換日時間 ──────────────────────────────────────────────────────
+          (0, _jsxRuntime.jsx)("div", { style:Object.assign({},labelStyle,{marginTop:8}), children:"日期設定" }),
+          (0, _jsxRuntime.jsx)("div", { style:cardStyle, children:
+            (0, _jsxRuntime.jsxs)("div", { className:"settings-row", children:[
+              (0, _jsxRuntime.jsxs)("div", { children:[
+                (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"換日時間" }),
+                (0, _jsxRuntime.jsx)("div", { className:"settings-sub", children:"幾點以前仍算前一天（預設 4:00）" }),
+              ]}),
+              (0, _jsxRuntime.jsx)("input", {
+                type:"number", min:0, max:11, value:hr,
+                style:{width:64,marginTop:0,textAlign:"center",flexShrink:0},
+                onChange: function(e){ update(function(s){ s.settings.dayResetHour=Number(e.target.value); }); }
+              }),
+            ]})
+          }),
+
+          // ── 時段預設時間 ──────────────────────────────────────────────────
+          (0, _jsxRuntime.jsx)("div", { style:Object.assign({},labelStyle,{marginTop:8}), children:"服藥時段預設時間" }),
+          (0, _jsxRuntime.jsx)("p", {
+            style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:12,lineHeight:1.55},
+            children:"新增藥物時自動帶入，個別藥物可再調整"
+          }),
+          (0, _jsxRuntime.jsx)("div", { className:"period-time-grid",
+            children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
+              var pt2 = (state.settings && state.settings.periodTimes) || {};
+              var curT = pt2[p.id] || p.defaultTime;
+              return (0, _jsxRuntime.jsxs)("div", { className:"period-time-row", children:[
+                (0, _jsxRuntime.jsx)("span", { className:"period-time-icon", children:p.icon }),
+                (0, _jsxRuntime.jsx)("span", { className:"period-time-label", children:p.label }),
+                (0, _jsxRuntime.jsx)("input", {
+                  type:"time", value:curT,
+                  style:{width:100,marginTop:0,padding:"6px 10px",fontSize:"0.85rem"},
+                  onChange: function(e){
+                    var v=e.target.value;
+                    update(function(s){
+                      if(!s.settings.periodTimes) s.settings.periodTimes={};
+                      s.settings.periodTimes[p.id]=v;
+                    });
+                  }
+                }),
+              ]}, p.id);
+            })
+          }),
+
+          (0, _jsxRuntime.jsx)("button", {
+            className:"btn btn-secondary", style:{marginTop:16},
+            onClick:onClose, children:"關閉"
+          }),
+        ]}),
+      ]
     })
   });
 }
