@@ -9,8 +9,8 @@ var _jsxRuntime = {
 };
 
 // ── Supabase client ───────────────────────────────────────────────────────────
-var SUPABASE_URL  = "https://hmxajsjowjejqlvjrybe.supabase.co";
-var SUPABASE_ANON = "sb_publishable_bdx1QmWjMMdIAPxliLRmTA_-C_UsC2W";
+var SUPABASE_URL  = "https://xqjhbobskdgqaopenuos.supabase.co";
+var SUPABASE_ANON = "sb_publishable_hFQFX2jLmi8c3X9n0SnRdw_O6IPv9st";
 var _sbClient = null;
 
 function getSupabase() {
@@ -88,19 +88,7 @@ var EMPTY_STATE = {
   // val: { takenAt, displayTime, periodId, medicationId }
 
   doctorVisits: [],
-  settings: {
-    dayResetHour:  4,
-    reminderTimes: [],
-    periodTimes: {
-      breakfast_before: "07:30",
-      breakfast_after:  "08:00",
-      lunch_before:     "11:30",
-      lunch_after:      "12:30",
-      dinner_before:    "17:30",
-      dinner_after:     "18:30",
-      bedtime:          "22:00"
-    }
-  },
+  settings:     { dayResetHour: 4, reminderTimes: [] },
 };
 
 // ── 3. HELPERS ────────────────────────────────────────────────────────────────
@@ -126,22 +114,10 @@ function nowHHMM() {
   try { return new Date().toTimeString().slice(0, 5); } catch(e) { return "00:00"; }
 }
 
-function periodTime(sched, periodTimes) {
+function periodTime(sched) {
   if (!sched) return "08:00";
   if (sched.periodId === "custom" && sched.customTime) return sched.customTime;
-  // Check explicit time on schedule first (per-drug override)
-  if (sched.time) return sched.time;
-  // Then settings.periodTimes
-  if (periodTimes && periodTimes[sched.periodId]) return periodTimes[sched.periodId];
-  // Fallback to PERIOD_MAP default
   var p = PERIOD_MAP[sched.periodId];
-  return (p && p.defaultTime) || "08:00";
-}
-
-// Get resolved time for a periodId from settings
-function getDefaultPeriodTime(periodId, periodTimes) {
-  if (periodTimes && periodTimes[periodId]) return periodTimes[periodId];
-  var p = PERIOD_MAP[periodId];
   return (p && p.defaultTime) || "08:00";
 }
 
@@ -247,23 +223,10 @@ function sanitizeState(s) {
     doseLogs:     Array.isArray(s.doseLogs)     ? s.doseLogs.map(sanitizeDoseLog).filter(Boolean) : [],
     scheduleLog:  sanitizeScheduleLog(s.scheduleLog),
     doctorVisits: Array.isArray(s.doctorVisits) ? s.doctorVisits : [],
-    settings: (function() {
-      var ss = s.settings && typeof s.settings === "object" ? s.settings : {};
-      var DEFAULT_TIMES = {
-        breakfast_before:"07:30", breakfast_after:"08:00",
-        lunch_before:"11:30",     lunch_after:"12:30",
-        dinner_before:"17:30",    dinner_after:"18:30",
-        bedtime:"22:00"
-      };
-      var pt = (ss.periodTimes && typeof ss.periodTimes === "object") ? ss.periodTimes : {};
-      var merged = {};
-      Object.keys(DEFAULT_TIMES).forEach(function(k) { merged[k] = pt[k] || DEFAULT_TIMES[k]; });
-      return {
-        dayResetHour:  Number(ss.dayResetHour)  || 4,
-        reminderTimes: Array.isArray(ss.reminderTimes) ? ss.reminderTimes : [],
-        periodTimes:   merged,
-      };
-    })(),
+    settings: {
+      dayResetHour:  Number(s.settings && s.settings.dayResetHour)  || 4,
+      reminderTimes: Array.isArray(s.settings && s.settings.reminderTimes) ? s.settings.reminderTimes : [],
+    },
   };
 }
 
@@ -771,110 +734,21 @@ label {
 .cb-box.checked { background: var(--sage); border-color: var(--sage); }
 .cb-check { color: white; font-size: 0.85rem; font-weight: 700; }
 
-/* ── Period pill selector ── */
-.period-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 4px 0 16px;
-}
-.period-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: 1.5px solid var(--border);
-  background: white;
-  color: var(--ink-light);
-  font-size: 0.82rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.14s, border-color 0.14s, color 0.14s;
+/* Period selector */
+.period-selector { display: flex; flex-direction: column; gap: 6px; }
+.period-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 10px; border: 1.5px solid var(--border);
+  cursor: pointer; background: var(--cream); transition: all 0.15s;
   user-select: none;
-  white-space: nowrap;
 }
-.period-pill:active { transform: scale(0.97); }
-.period-pill.selected {
-  background: var(--rose-pale);
-  border-color: var(--rose);
-  color: var(--rose-dark);
-}
-.period-pill-icon { font-size: 0.9rem; line-height: 1; }
-
-/* Dose row that appears below pills when a period is selected */
-.period-dose-area {
-  background: var(--cream);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.period-dose-row-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.period-dose-row-item .pill-label {
-  font-size: 0.8rem;
-  color: var(--ink-light);
-  font-weight: 500;
-  min-width: 60px;
-}
-.period-dose-row-item input {
-  width: 72px;
-  margin-top: 0;
-  text-align: center;
-  font-size: 0.9rem;
-  padding: 8px 10px;
-}
-.period-dose-row-item input[type="time"] {
-  width: 110px;
-  flex: none;
-}
-.period-dose-row-item .dose-unit {
-  font-size: 0.78rem;
-  color: var(--ink-muted);
-}
-
-/* Section label above pills */
-.period-section-label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--ink-muted);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-  font-family: 'DM Mono', monospace;
-}
-
-/* Settings period time rows */
-.period-time-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  background: white;
-  border-radius: 12px;
-  border: 1.5px solid var(--border);
-  overflow: hidden;
-  margin-bottom: 16px;
-}
-.period-time-row {
-  display: flex;
-  align-items: center;
-  padding: 11px 16px;
-  border-bottom: 1px solid var(--border);
-  gap: 10px;
-}
-.period-time-row:last-child { border-bottom: none; }
-.period-time-icon { font-size: 1rem; flex-shrink: 0; }
-.period-time-label { flex: 1; font-size: 0.88rem; font-weight: 500; color: var(--ink); }
-.period-time-row input[type="time"] {
-  width: 100px; margin-top: 0; padding: 6px 10px;
-  font-size: 0.85rem; text-align: center; flex-shrink: 0;
-}
+.period-option.selected { background: var(--rose-pale); border-color: var(--rose-light); }
+.period-option-icon { font-size: 1rem; }
+.period-option-label { font-size: 0.88rem; font-weight: 500; flex: 1; }
+.period-option-time { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--ink-muted); }
+.period-dose-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0 14px 10px; }
+.period-dose-row input { width: 72px; margin-top: 0; }
+.period-dose-row input[type="time"] { flex: 1; width: auto; }
 
 /* Settings */
 .settings-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1.5px solid var(--border); }
@@ -1376,8 +1250,7 @@ window.App = function App() {
 
     // Modals
     modal === "addMed" && !isSupporter && _jsxRuntime.jsx(AddMedModal, {
-      onClose:     function() { setModal(null); },
-      periodTimes: safeSettings.periodTimes || {},
+      onClose: function() { setModal(null); },
       onSave:  function(med) {
         update(function(s) {
           s.medications.push(Object.assign({}, med, {
@@ -1391,7 +1264,6 @@ window.App = function App() {
     }),
     modal === "addVisit" && !isSupporter && _jsxRuntime.jsx(AddVisitModal, {
       medications: activeMeds, allMeds: state.medications,
-      periodTimes: safeSettings.periodTimes || {},
       onClose: function() { setModal(null); },
       onSave:  function(visit) {
         update(function(s) {
@@ -2322,151 +2194,170 @@ function VisitsPage({
 }
 
 // ─── Period selector component ────────────────────────────────────────────────
-// ─── Period Pill Selector ────────────────────────────────────────────────────
-// selected: [{ periodId, time, dose }]
-// periodTimes: settings.periodTimes (for defaults)
-function PeriodSelector(props) {
-  var selected    = props.selected    || [];
-  var onChange    = props.onChange;
-  var periodTimes = props.periodTimes || {};
-
-  function isSelected(pid) {
-    return selected.some(function(s) { return s.periodId === pid; });
-  }
-
+function PeriodSelector({
+  selected,
+  onChange
+}) {
+  // selected: [{ periodId, customTime?, dose }]
+  var isSelected = pid => selected.some(function(s){ return s.periodId === pid; });
   function toggle(pid) {
     if (isSelected(pid)) {
-      onChange(selected.filter(function(s) { return s.periodId !== pid; }));
+      onChange(selected.filter(function(s){ return s.periodId !== pid; }));
     } else {
-      var defTime = getDefaultPeriodTime(pid, periodTimes);
-      onChange(selected.concat([{ periodId: pid, time: defTime, dose: 1 }]));
+      var defaultT = PERIOD_MAP[pid] && PERIOD_MAP[pid].defaultTime || "08:00";
+      onChange([...selected, {
+        periodId: pid,
+        customTime: pid === "custom" ? defaultT : null,
+        dose: 1
+      }]);
     }
   }
-
-  function updateItem(pid, patch) {
-    onChange(selected.map(function(s) {
-      return s.periodId === pid ? Object.assign({}, s, patch) : s;
-    }));
+  function updateSched(pid, patch) {
+    onChange(selected.map(s => s.periodId === pid ? {
+      ...s,
+      ...patch
+    } : s));
   }
-
-  // Periods excluding "custom" (shown separately)
-  var mainPeriods = PERIODS.filter(function(p) { return p.id !== "custom"; });
-
-  return _jsxRuntime.jsxs("div", { children: [
-    // ── Pill row ──────────────────────────────────────────────────────────
-    _jsxRuntime.jsx("div", { className: "period-section-label", children: "服用時段" }),
-    _jsxRuntime.jsx("div", { className: "period-pills",
-      children: mainPeriods.map(function(p) {
-        var sel = isSelected(p.id);
-        return _jsxRuntime.jsxs("button", {
-          type: "button",
-          className: "period-pill" + (sel ? " selected" : ""),
-          onClick: function() { toggle(p.id); },
-          children: [
-            _jsxRuntime.jsx("span", { className: "period-pill-icon", children: p.icon }),
-            _jsxRuntime.jsx("span", { children: p.label }),
-          ]
-        }, p.id);
-      })
-    }),
-
-    // ── Dose + time inputs for selected periods ───────────────────────────
-    selected.length > 0 && _jsxRuntime.jsxs("div", { className: "period-dose-area", children: [
-      _jsxRuntime.jsx("div", {
-        style: { fontSize:"0.72rem", color:"var(--ink-muted)", marginBottom:2, fontWeight:500 },
-        children: "每次劑量 & 時間"
-      }),
-      selected.map(function(sched) {
-        var p = PERIOD_MAP[sched.periodId];
-        if (!p) return null;
-        return _jsxRuntime.jsxs("div", { className: "period-dose-row-item", children: [
-          _jsxRuntime.jsxs("span", { className: "pill-label", children: [
-            p.icon, " ", p.label
-          ]}),
-          _jsxRuntime.jsx("input", {
-            type: "number", min: 0.5, step: 0.5,
+  return (0, _jsxRuntime.jsx)("div", {
+    className: "period-selector",
+    children: PERIODS.map(p => {
+      var sel = isSelected(p.id);
+      var sched = selected.find(function(s){ return s.periodId === p.id; });
+      return (0, _jsxRuntime.jsxs)("div", {
+        children: [(0, _jsxRuntime.jsxs)("div", {
+          className: "period-option " + sel ? "selected" : "",
+          onClick: () => toggle(p.id),
+          children: [(0, _jsxRuntime.jsx)("span", {
+            className: "period-option-icon",
+            children: p.icon
+          }), (0, _jsxRuntime.jsx)("span", {
+            className: "period-option-label",
+            children: p.label
+          }), !sel && (0, _jsxRuntime.jsx)("span", {
+            className: "period-option-time",
+            children: p.defaultTime
+          }), sel && (0, _jsxRuntime.jsx)("span", {
+            style: {
+              color: "var(--rose)",
+              fontSize: "0.85rem",
+              fontWeight: 700
+            },
+            children: "\u2713"
+          })]
+        }), sel && (0, _jsxRuntime.jsxs)("div", {
+          className: "period-dose-row",
+          children: [(0, _jsxRuntime.jsx)("span", {
+            style: {
+              fontSize: "0.78rem",
+              color: "var(--ink-muted)",
+              whiteSpace: "nowrap"
+            },
+            children: "\u6BCF\u6B21"
+          }), (0, _jsxRuntime.jsx)("input", {
+            type: "number",
+            min: 0.5,
+            step: 0.5,
             value: sched.dose,
-            onChange: function(e) { updateItem(sched.periodId, { dose: Number(e.target.value) }); }
-          }),
-          _jsxRuntime.jsx("span", { className: "dose-unit", children: "顆" }),
-          _jsxRuntime.jsx("input", {
+            onChange: e => updateSched(p.id, {
+              dose: Number(e.target.value)
+            }),
+            style: {
+              width: 72
+            }
+          }), (0, _jsxRuntime.jsx)("span", {
+            style: {
+              fontSize: "0.78rem",
+              color: "var(--ink-muted)"
+            },
+            children: "\u9846"
+          }), p.id === "custom" && (0, _jsxRuntime.jsx)("input", {
             type: "time",
-            value: sched.time || getDefaultPeriodTime(sched.periodId, periodTimes),
-            onChange: function(e) { updateItem(sched.periodId, { time: e.target.value }); }
-          }),
-        ]}, sched.periodId);
-      })
-    ]}),
-  ]});
+            value: sched.customTime || p.defaultTime,
+            onChange: e => updateSched(p.id, {
+              customTime: e.target.value
+            })
+          })]
+        })]
+      }, p.id);
+    })
+  });
 }
 
-
 // ─── Add Med Modal ────────────────────────────────────────────────────────────
-function AddMedModal(props) {
-  var onClose     = props.onClose;
-  var onSave      = props.onSave;
-  var periodTimes = props.periodTimes || {};
-
-  var _n  = useState(""); var name = _n[0]; var setName = _n[1];
-  var _t  = useState(30); var total = _t[0]; var setTotal = _t[1];
-  var _sc = useState([]); var schedules = _sc[0]; var setSchedules = _sc[1];
-
-  function save() {
-    if (!name.trim())     return;
-    if (!schedules.length) return;
-    onSave({ name: name.trim(), schedules: schedules, totalCount: Number(total) });
-  }
-
-  return _jsxRuntime.jsxs("div", {
+function AddMedModal({
+  onClose,
+  onSave
+}) {
+  var [name, setName] = useState("");
+  var [total, setTotal] = useState(30);
+  var [schedules, setSchedules] = useState([]);
+  return (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
-    onClick: function(e) { if (e.target === e.currentTarget) onClose(); },
-    children: [_jsxRuntime.jsxs("div", { className: "modal", children: [
-      _jsxRuntime.jsxs("div", { className: "modal-top", children: [
-        _jsxRuntime.jsx("div", { className: "modal-handle" }),
-        _jsxRuntime.jsx("h3", { children: "新增藥物" }),
-      ]}),
-      _jsxRuntime.jsxs("div", { className: "modal-scroll", children: [
-
-        // Name
-        _jsxRuntime.jsxs("div", { className: "field", children: [
-          _jsxRuntime.jsx("label", { children: "藥物名稱" }),
-          _jsxRuntime.jsx("input", {
-            type: "text", value: name, autoFocus: true,
-            placeholder: "例：Escitalopram 10mg",
-            onChange: function(e) { setName(e.target.value); }
-          }),
-        ]}),
-
-        // Total count
-        _jsxRuntime.jsxs("div", { className: "field", children: [
-          _jsxRuntime.jsx("label", { children: "初始總顆數" }),
-          _jsxRuntime.jsx("input", {
-            type: "number", min: 1, value: total,
-            onChange: function(e) { setTotal(e.target.value); }
-          }),
-        ]}),
-
-        // Period pill selector
-        _jsxRuntime.jsx(PeriodSelector, {
-          selected: schedules,
-          onChange: setSchedules,
-          periodTimes: periodTimes,
-        }),
-
-        schedules.length === 0 && _jsxRuntime.jsx("p", {
-          style: { fontSize:"0.75rem", color:"var(--rose)", marginBottom:12, marginTop:-8 },
-          children: "請至少選擇一個時段"
-        }),
-
-        _jsxRuntime.jsx("button", {
+    onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
+    children: (0, _jsxRuntime.jsxs)("div", {
+      className: "modal",
+      children: [(0, _jsxRuntime.jsxs)("div", {
+        className: "modal-top",
+        children: [(0, _jsxRuntime.jsx)("div", {
+          className: "modal-handle"
+        }), (0, _jsxRuntime.jsx)("h3", {
+          children: "\u65B0\u589E\u85E5\u7269"
+        })]
+      }), (0, _jsxRuntime.jsxs)("div", {
+        className: "modal-scroll",
+        children: [(0, _jsxRuntime.jsxs)("div", {
+          className: "field",
+          children: [(0, _jsxRuntime.jsx)("label", {
+            children: "\u85E5\u7269\u540D\u7A31"
+          }), (0, _jsxRuntime.jsx)("input", {
+            type: "text",
+            value: name,
+            onChange: e => setName(e.target.value),
+            placeholder: "\u4F8B\uFF1AEscitalopram 10mg",
+            autoFocus: true
+          })]
+        }), (0, _jsxRuntime.jsxs)("div", {
+          className: "field",
+          children: [(0, _jsxRuntime.jsx)("label", {
+            children: "\u521D\u59CB\u7E3D\u9846\u6578"
+          }), (0, _jsxRuntime.jsx)("input", {
+            type: "number",
+            min: 1,
+            value: total,
+            onChange: e => setTotal(e.target.value)
+          })]
+        }), (0, _jsxRuntime.jsxs)("div", {
+          className: "field",
+          children: [(0, _jsxRuntime.jsx)("label", {
+            style: {
+              marginBottom: 10
+            },
+            children: "\u670D\u7528\u6642\u6BB5\uFF08\u53EF\u8907\u9078\uFF09"
+          }), (0, _jsxRuntime.jsx)(PeriodSelector, {
+            selected: schedules,
+            onChange: setSchedules
+          })]
+        }), (0, _jsxRuntime.jsx)("button", {
           className: "btn btn-primary",
-          style: { marginTop: 8 },
-          onClick: save,
-          children: "儲存藥物"
-        }),
-        _jsxRuntime.jsx("button", { className: "btn btn-ghost", onClick: onClose, children: "取消" }),
-      ]}),
-    ]})]
+          style: {
+            marginTop: 8
+          },
+          onClick: () => {
+            if (!name.trim() || schedules.length === 0) return;
+            onSave({
+              name: name.trim(),
+              schedules,
+              totalCount: Number(total)
+            });
+          },
+          children: "\u5132\u5B58\u85E5\u7269"
+        }), (0, _jsxRuntime.jsx)("button", {
+          className: "btn btn-ghost",
+          onClick: onClose,
+          children: "\u53D6\u6D88"
+        })]
+      })]
+    })
   });
 }
 
@@ -2475,8 +2366,7 @@ function AddVisitModal({
   medications,
   allMeds,
   onClose,
-  onSave,
-  periodTimes
+  onSave
 }) {
   var todayStr = new Date().toISOString().slice(0, 10);
   var [date, setDate] = useState(todayStr);
@@ -2939,39 +2829,11 @@ function SettingsModal({
               })]
             })
           })]
-        }), (0, _jsxRuntime.jsxs)("div", {
-          style:{marginTop:20},
-          children:[
-            (0, _jsxRuntime.jsx)("div", {
-              style:{fontSize:"0.72rem",fontWeight:600,color:"var(--ink-muted)",
-                     letterSpacing:"0.1em",textTransform:"uppercase",fontFamily:"'DM Mono',monospace",marginBottom:10},
-              children: "\u670d\u85e5\u6642\u6bb5\u9810\u8a2d\u6642\u9593"
-            }),
-            (0, _jsxRuntime.jsx)("div", { className:"period-time-grid",
-              children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
-                var pt2 = (state.settings && state.settings.periodTimes) || {};
-                var curT = pt2[p.id] || p.defaultTime;
-                return (0, _jsxRuntime.jsxs)("div", { className:"period-time-row", key:p.id, children:[
-                  (0, _jsxRuntime.jsx)("span", { className:"period-time-icon", children: p.icon }),
-                  (0, _jsxRuntime.jsx)("span", { className:"period-time-label", children: p.label }),
-                  (0, _jsxRuntime.jsx)("input", {
-                    type:"time", value:curT,
-                    style:{width:100,marginTop:0,padding:"6px 10px",fontSize:"0.85rem"},
-                    onChange: function(e) {
-                      var v = e.target.value;
-                      update(function(s) {
-                        if (!s.settings.periodTimes) s.settings.periodTimes = {};
-                        s.settings.periodTimes[p.id] = v;
-                      });
-                    }
-                  }),
-                ]});
-              })
-            }),
-          ]
         }), (0, _jsxRuntime.jsx)("button", {
           className: "btn btn-secondary",
-          style: { marginTop: 16 },
+          style: {
+            marginTop: 0
+          },
           onClick: onClose,
           children: "\u95DC\u9589"
         })]
@@ -2979,6 +2841,7 @@ function SettingsModal({
     })
   });
 }
+
 // ─── Profile Modal ────────────────────────────────────────────────────────────
 // Alias old ProfileModal → ProfileModalV8
 var ProfileModal = ProfileModalV8;
