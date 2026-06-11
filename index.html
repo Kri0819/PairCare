@@ -1100,6 +1100,13 @@ var Ico = {
 //                → (has role, no pair) → PAIR_SETUP
 //                → (paired) → HOME
 
+// ── React hook shims (required for Safari/iOS compatibility) ─────────────────
+var useState    = React.useState;
+var useEffect   = React.useEffect;
+var useCallback = React.useCallback;
+var useRef      = React.useRef;
+var useMemo     = React.useMemo;
+
 window.App = function App() {
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -2438,25 +2445,47 @@ function PeriodSelector(props) {
     }));
   }
 
-  // Periods excluding "custom" (shown separately)
   var mainPeriods = PERIODS.filter(function(p) { return p.id !== "custom"; });
 
   return _jsxRuntime.jsxs("div", { children: [
-    // ── Pill row ──────────────────────────────────────────────────────────
+    // ── Dropdown multi-select ─────────────────────────────────────────────
     _jsxRuntime.jsx("div", { className: "period-section-label", children: "服用時段" }),
-    _jsxRuntime.jsx("div", { className: "period-pills",
+    _jsxRuntime.jsx("select", {
+      multiple: true,
+      value: selected.map(function(s) { return s.periodId; }),
+      onChange: function(e) {
+        var chosen = Array.from(e.target.selectedOptions).map(function(o) { return o.value; });
+        // Add new ones, remove deselected
+        var next = chosen.map(function(pid) {
+          var existing = selected.find(function(s) { return s.periodId === pid; });
+          return existing || { periodId: pid, time: getDefaultPeriodTime(pid, periodTimes), dose: 1 };
+        });
+        onChange(next);
+      },
+      style: {
+        width: "100%",
+        borderRadius: 10,
+        border: "1.5px solid var(--border)",
+        background: "white",
+        padding: "6px 8px",
+        fontSize: "0.9rem",
+        fontFamily: "'Noto Serif TC', serif",
+        color: "var(--ink)",
+        marginTop: 4,
+        marginBottom: 12,
+        minHeight: 160,
+      },
       children: mainPeriods.map(function(p) {
-        var sel = isSelected(p.id);
-        return _jsxRuntime.jsxs("button", {
-          type: "button",
-          className: "period-pill" + (sel ? " selected" : ""),
-          onClick: function() { toggle(p.id); },
-          children: [
-            _jsxRuntime.jsx("span", { className: "period-pill-icon", children: p.icon }),
-            _jsxRuntime.jsx("span", { children: p.label }),
-          ]
+        return _jsxRuntime.jsx("option", {
+          value: p.id,
+          style: { padding: "6px 4px", fontSize: "0.9rem" },
+          children: p.icon + " " + p.label
         }, p.id);
       })
+    }),
+    _jsxRuntime.jsx("p", {
+      style: { fontSize:"0.72rem", color:"var(--ink-muted)", marginTop:-8, marginBottom:12 },
+      children: "可按住 Ctrl（Windows）或 Command（Mac）多選；手機直接點選多個"
     }),
 
     // ── Dose + time inputs for selected periods ───────────────────────────
