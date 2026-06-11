@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v8 start');
+console.log('[PairCare] v9.4 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -1100,12 +1100,12 @@ var Ico = {
 //                → (has role, no pair) → PAIR_SETUP
 //                → (paired) → HOME
 
-// 💡 把這裡整塊貼過去，一次把常用的功能補齊！
-var useState = React.useState;
-var useRef = React.useRef;
+// ── React hook shims (required for Safari/iOS compatibility) ─────────────────
+var useState    = React.useState;
+var useEffect   = React.useEffect;
 var useCallback = React.useCallback;
-var useEffect = React.useEffect;   // 👈 這次卡住的是這行
-var useMemo = React.useMemo;       // 👈 順便預防萬一補上這行
+var useRef      = React.useRef;
+var useMemo     = React.useMemo;
 
 window.App = function App() {
 
@@ -1153,7 +1153,20 @@ window.App = function App() {
   var now    = _now[0];
   var setNow = _now[1];
 
-  var firedRef     = useRef({});
+  // firedRef: tracks notifications fired TODAY
+  // Structure: { date: "YYYY-MM-DD", fired: { key: true } }
+  // - Resets automatically when logicalDate changes (cross-day)
+  // - Persisted in sessionStorage so reload doesn't re-fire today's alerts
+  var firedRef = useRef((function() {
+    try {
+      var stored = JSON.parse(sessionStorage.getItem("paircare_fired") || "{}");
+      var today  = getLogicalDate(4); // use default 4 until settings loaded
+      if (stored.date === today && stored.fired && typeof stored.fired === "object") {
+        return { date: stored.date, fired: stored.fired };
+      }
+    } catch(e) {}
+    return { date: getLogicalDate(4), fired: {} };
+  })());
   var lastSavedRef = useRef(null);
   var authSubRef   = useRef(null);
 
@@ -1308,31 +1321,97 @@ window.App = function App() {
     var safeMeds = Array.isArray(state.medications) ? state.medications : [];
     var safeLog  = state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {};
     var settings = state.settings || { dayResetHour: 4, reminderTimes: [] };
+    var resetHour = settings.dayResetHour || 4;
+
+    function saveFired() {
+      // Persist today's fired keys to sessionStorage
+      // so page reload doesn't re-fire already-sent notifications
+      try {
+        sessionStorage.setItem("paircare_fired", JSON.stringify({
+          date:  firedRef.current.date,
+          fired: firedRef.current.fired
+        }));
+      } catch(e) {}
+    }
+
+    function checkAndResetDate(date) {
+      // If logicalDate changed (crossed dayResetHour), clear yesterday's fired keys
+      if (firedRef.current.date !== date) {
+        console.log("[PairCare] new logical date:", date, "— resetting fired notifications");
+        firedRef.current = { date: date, fired: {} };
+        try { sessionStorage.removeItem("paircare_fired"); } catch(e) {}
+      }
+    }
+
+    function hasFired(key) {
+      return !!firedRef.current.fired[key];
+    }
+
+    function markFired(key) {
+      firedRef.current.fired[key] = true;
+      saveFired();
+    }
+
+    // ── Helpers: resolve base time for a schedule ──────────────────────────
+    // Priority: 1) settings.periodTimes  2) 14-day average  3) PERIOD_MAP default
+    function resolveBaseTime(sched, medId) {
+      // 1. User-configured period time
+      var pt = settings.periodTimes && settings.periodTimes[sched.periodId];
+      if (pt) return toMins(pt);
+
+      // 2. 14-day average from doseLogs
+      var safeLogs = Array.isArray(state.doseLogs) ? state.doseLogs : [];
+      var cutoff   = new Date();
+      cutoff.setDate(cutoff.getDate() - 14);
+      var cutoffISO = cutoff.toISOString();
+      var relevant  = safeLogs.filter(function(l) {
+        return l && l.medicationId === medId
+          && l.periodId === sched.periodId
+          && l.takenAt && l.takenAt > cutoffISO
+          && l.status === "taken";
+      });
+      if (relevant.length >= 3) {
+        // Average the HH:MM portion of takenAt
+        var totalMins = relevant.reduce(function(sum, l) {
+          return sum + toMins(l.takenAt.slice(11, 16));
+        }, 0);
+        return Math.round(totalMins / relevant.length);
+      }
+
+      // 3. PERIOD_MAP default
+      var p = PERIOD_MAP[sched.periodId];
+      return p ? toMins(p.defaultTime) : -1; // -1 = no data, skip
+    }
 
     function check() {
-      var date = getLogicalDate(settings.dayResetHour || 4);
+      var date = getLogicalDate(resetHour);
       var nowM = now.getHours() * 60 + now.getMinutes();
       var minutesBefore = (settings.reminderMinutesBefore && settings.reminderMinutesBefore.length)
         ? settings.reminderMinutesBefore
-        : [10]; // default: 10 minutes before
+        : [10];
+
+      // ① Reset fired keys if day has changed
+      checkAndResetDate(date);
+
+      // User info for caregiver notification text
+      var userName = (state.user && state.user.name) || "用藥者";
 
       safeMeds.filter(function(m) { return m && m.status === "active"; }).forEach(function(med) {
         (med.schedules || []).forEach(function(sched) {
-          var key     = doseKey(date, med.id, sched.periodId);
-          var log     = safeLog[key];
-          if (log) return; // already taken
+          var key    = doseKey(date, med.id, sched.periodId);
+          var log    = safeLog[key];
+          if (log) return; // already taken — no reminder needed
 
-          var schedM  = toMins(periodTime(sched, settings.periodTimes));
-          var diff    = nowM - schedM; // positive = past scheduled time
-          var lbl     = PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].label;
+          var schedM = toMins(periodTime(sched, settings.periodTimes));
+          var diff   = nowM - schedM;
+          var lbl    = PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].label;
 
-          // Fire each "X minutes before" reminder
+          // ② X minutes BEFORE reminder
           minutesBefore.forEach(function(mins) {
-            var fireKey = key + "_before_" + mins;
-            // diff == -mins means we are exactly `mins` minutes before scheduled time
-            var minsUntil = schedM - nowM; // positive = future
-            if (minsUntil >= mins && minsUntil < mins + 2 && !firedRef.current[fireKey]) {
-              firedRef.current[fireKey] = true;
+            var fireKey   = key + "_before_" + mins;
+            var minsUntil = schedM - nowM;
+            if (minsUntil >= mins && minsUntil < mins + 2 && !hasFired(fireKey)) {
+              markFired(fireKey);
               notify(
                 "PairCare｜" + mins + " 分鐘後吃藥",
                 (lbl || "") + " 還有 " + mins + " 分鐘，準備吃 " + med.name
@@ -1340,20 +1419,40 @@ window.App = function App() {
             }
           });
 
-          // Also fire at scheduled time (diff 0-2 min)
-          if (diff >= 0 && diff < 2 && !firedRef.current[key + "_due"]) {
-            firedRef.current[key + "_due"] = true;
+          // ③ On-time reminder (within 2-min window of scheduled time)
+          var dueKey = key + "_due";
+          if (diff >= 0 && diff < 2 && !hasFired(dueKey)) {
+            markFired(dueKey);
             notify("PairCare｜服藥提醒", "現在是" + (lbl || "") + "用藥時間，記得吃 " + med.name);
           }
 
-          // Late reminder: 90 min overdue
-          if (diff >= 90 && !firedRef.current[key + "_late"]) {
-            firedRef.current[key + "_late"] = true;
-            notify("PairCare｜還沒吃藥", med.name + " 超過 90 分鐘未記錄");
+          // ④ 90-minute overdue reminder (enhanced)
+          // Use priority-based base time: settings → 14-day avg → default
+          var lateKey  = key + "_late";
+          if (!hasFired(lateKey)) {
+            var baseM = resolveBaseTime(sched, med.id);
+            // baseM === -1 means no data available — skip
+            if (baseM >= 0 && (nowM - baseM) >= 90) {
+              markFired(lateKey);
+              var isSupporter = state.user && state.user.role === "supporter";
+              if (isSupporter) {
+                // Caregiver sees patient's name
+                notify(
+                  "⏰ PairCare｜用藥提醒",
+                  userName + " 的 " + med.name + "（" + (lbl || sched.periodId) + "）已超過預定時間 90 分鐘，尚未完成"
+                );
+              } else {
+                notify(
+                  "⏰ PairCare｜用藥提醒",
+                  med.name + "（" + (lbl || sched.periodId) + "）已超過預定時間 90 分鐘，尚未完成"
+                );
+              }
+            }
           }
         });
       });
     }
+
     check();
     var t = setInterval(check, 60000);
     return function() { clearInterval(t); };
@@ -1415,19 +1514,19 @@ window.App = function App() {
     ]});
   }
 
-  // 2. No session → login
+  // 2. No session → Google login
   if (!sbUser && !user) {
     return _jsxRuntime.jsx(LoginFlow, { onLogin: function(u) { setSbUser(u); }, showToast: showToast });
   }
 
-  // 3. Logged in but no role → role select
+  // 3. Logged in → nickname + role select
   if (!user || !user.role) {
     return _jsxRuntime.jsx(RoleSelectFlow, {
       sbUser: sbUser, state: state, update: update, showToast: showToast
     });
   }
 
-  // 4. Has role but no pair → pair setup
+  // 4. Has role → pair binding (skippable)
   if (!pair) {
     return _jsxRuntime.jsx(PairSetupFlow, {
       user: user, state: state, update: update, showToast: showToast
@@ -1493,6 +1592,14 @@ window.App = function App() {
         update(function(s) {
           s.doctorVisits.unshift(Object.assign({}, visit, { id: uid(), pairId: pair.id }));
           var continued = new Set(visit.continuedIds || []);
+          var refills   = visit.continuedRefills || {};
+          // Apply refills to continued medications
+          s.medications.forEach(function(m) {
+            if (continued.has(m.id) && refills[m.id]) {
+              m.remainingCount = (m.remainingCount || 0) + Number(refills[m.id]);
+              m.totalCount     = Math.max(m.totalCount || 0, m.remainingCount);
+            }
+          });
           (visit.newMeds || []).forEach(function(nm) {
             if (!nm.name || !nm.name.trim()) return;
             s.medications.push({
@@ -1527,41 +1634,27 @@ function LoginFlow(props) {
   var onLogin   = props.onLogin;
   var showToast = props.showToast;
 
-  var _step = useState("email"); var step = _step[0]; var setStep = _step[1];
-  var _em   = useState("");      var email = _em[0];  var setEmail = _em[1];
-  var _otp  = useState("");      var otp   = _otp[0]; var setOtp   = _otp[1];
-  var _err  = useState("");      var err   = _err[0]; var setErr   = _err[1];
-  var _ld   = useState(false);   var loading = _ld[0]; var setLoading = _ld[1];
+  var _err = useState(""); var err = _err[0]; var setErr = _err[1];
+  var _ld  = useState(false); var loading = _ld[0]; var setLoading = _ld[1];
 
-  function sendOTP() {
+  function signInWithGoogle() {
     var sb = getSupabase();
     if (!sb) { setErr("Supabase 連線失敗，請重新整理"); return; }
-    if (!email.trim()) { setErr("請輸入 Email"); return; }
     setLoading(true); setErr("");
-    sb.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
-      options: { shouldCreateUser: true }
+    sb.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { access_type: "offline", prompt: "consent" }
+      }
     }).then(function(res) {
       setLoading(false);
-      if (res.error) { setErr(res.error.message || "發送失敗"); return; }
-      setStep("otp");
-    }).catch(function(e) { setLoading(false); setErr(e.message || "發送失敗"); });
-  }
-
-  function verifyOTP() {
-    var sb = getSupabase();
-    if (!sb) { setErr("Supabase 連線失敗"); return; }
-    if (!otp.trim()) { setErr("請輸入驗證碼"); return; }
-    setLoading(true); setErr("");
-    sb.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: otp.trim(),
-      type:  "email"
-    }).then(function(res) {
+      if (res.error) { setErr(res.error.message || "登入失敗"); }
+      // On success, Supabase redirects — onAuthStateChange handles the rest
+    }).catch(function(e) {
       setLoading(false);
-      if (res.error) { setErr(res.error.message || "驗證碼錯誤"); return; }
-      if (res.data && res.data.user) onLogin(res.data.user);
-    }).catch(function(e) { setLoading(false); setErr(e.message || "驗證失敗"); });
+      setErr(e.message || "登入失敗");
+    });
   }
 
   return _jsxRuntime.jsxs("div", { className: "app", children: [
@@ -1571,54 +1664,33 @@ function LoginFlow(props) {
         _jsxRuntime.jsx("h1", { children: "陪一刻" }),
         _jsxRuntime.jsx("p",  { children: "PAIRCARE" }),
       ]}),
-
-      step === "email" && _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
-        _jsxRuntime.jsx("h2", { children: "登入 / 註冊" }),
-        _jsxRuntime.jsxs("div", { className: "field", children: [
-          _jsxRuntime.jsx("label", { children: "Email" }),
-          _jsxRuntime.jsx("input", {
-            type: "email", value: email, autoFocus: true,
-            placeholder: "your@email.com",
-            onChange: function(e) { setEmail(e.target.value); setErr(""); },
-            onKeyDown: function(e) { if (e.key === "Enter") sendOTP(); }
-          }),
-        ]}),
-        err && _jsxRuntime.jsx("p", { style:{color:"var(--rose)",fontSize:"0.78rem",marginBottom:8}, children: err }),
-        _jsxRuntime.jsx("button", {
-          className: "btn btn-primary",
-          onClick: sendOTP,
-          children: loading ? "發送中…" : "傳送驗證碼"
-        }),
+      _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
+        _jsxRuntime.jsx("h2", { children: "開始使用" }),
         _jsxRuntime.jsx("p", {
-          style:{fontSize:"0.72rem",color:"var(--ink-muted)",textAlign:"center",marginTop:12,lineHeight:1.6},
-          children: "我們會寄送一次性驗證碼到你的 Email"
+          style:{fontSize:"0.82rem",color:"var(--ink-muted)",marginBottom:20,lineHeight:1.6},
+          children: "用 Google 帳號登入，安全快速"
         }),
-      ]}),
-
-      step === "otp" && _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
-        _jsxRuntime.jsx("h2", { children: "輸入驗證碼" }),
-        _jsxRuntime.jsx("p", { style:{fontSize:"0.82rem",color:"var(--ink-muted)",marginBottom:16,lineHeight:1.6}, children: "驗證碼已寄到 " + email }),
-        _jsxRuntime.jsxs("div", { className: "field", children: [
-          _jsxRuntime.jsx("label", { children: "6 位數驗證碼" }),
-          _jsxRuntime.jsx("input", {
-            type: "text", value: otp, autoFocus: true, maxLength: 8,
-            placeholder: "123456",
-            style:{textAlign:"center",fontSize:"1.6rem",letterSpacing:"0.2em",fontFamily:"'DM Mono',monospace"},
-            onChange: function(e) { setOtp(e.target.value.replace(/[^0-9]/g,"")); setErr(""); },
-            onKeyDown: function(e) { if (e.key === "Enter") verifyOTP(); }
-          }),
-        ]}),
-        err && _jsxRuntime.jsx("p", { style:{color:"var(--rose)",fontSize:"0.78rem",marginBottom:8}, children: err }),
-        _jsxRuntime.jsx("button", { className:"btn btn-primary", onClick:verifyOTP, children: loading ? "驗證中…" : "確認" }),
-        _jsxRuntime.jsx("button", {
-          className: "btn btn-ghost",
-          onClick: function() { setStep("email"); setOtp(""); setErr(""); },
-          children: "← 重新輸入 Email"
+        err && _jsxRuntime.jsx("p", { style:{color:"var(--rose)",fontSize:"0.78rem",marginBottom:12}, children: err }),
+        _jsxRuntime.jsxs("button", {
+          className: "btn btn-primary",
+          onClick: signInWithGoogle,
+          style: { display:"flex", alignItems:"center", justifyContent:"center", gap:10 },
+          children: [
+            _jsxRuntime.jsx("svg", {
+              viewBox:"0 0 24 24", width:20, height:20, style:{flexShrink:0},
+              children: _jsxRuntime.jsx("path", {
+                d:"M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z",
+                fill:"currentColor"
+              })
+            }),
+            loading ? "登入中…" : "使用 Google 登入"
+          ]
         }),
       ]}),
     ]}),
   ]});
 }
+
 
 // ── 9. ROLE SELECT FLOW ───────────────────────────────────────────────────────
 function RoleSelectFlow(props) {
@@ -1704,57 +1776,71 @@ function PairSetupFlow(props) {
   var update    = props.update;
   var showToast = props.showToast;
 
+  // Generate invite code for this user (stable per session)
   var _code = useState(function() { return newInviteCode(); });
   var myCode = _code[0];
 
-  var _inp  = useState(""); var inputCode = _inp[0]; var setInputCode = _inp[1];
-  var _err  = useState(""); var joinErr   = _err[0]; var setJoinErr   = _err[1];
-
-  // Patient: create pair
-  function createPair() {
-    var pairId = uid();
-    var pair = { id:pairId, patientId:user.id, supporterId:null, inviteCode:myCode, locked:false, createdAt:new Date().toISOString() };
-    update(function(s) {
-      s.pair = pair;
-      if (s.user) s.user.pairId = pairId;
-    });
-    showToast("✓ 配對已建立，等待陪同者加入");
-  }
-
-  // Supporter: join by code
-  function joinPair() {
-    var code = inputCode.trim().toUpperCase();
-    if (!code) { setJoinErr("請輸入邀請碼"); return; }
-    // Check localStorage for existing pair with this code
-    try {
-      var stored = safeJSON(localStorage.getItem(STORAGE_KEY));
-      var ep = stored && stored.pair;
-      if (ep && ep.inviteCode === code) {
-        update(function(s) {
-          s.pair = Object.assign({}, ep, { supporterId: user.id, locked: true });
-          if (s.user) s.user.pairId = ep.id;
-          // Carry over data from stored state
-          if (stored.medications && stored.medications.length)  s.medications  = stored.medications;
-          if (stored.scheduleLog)                               s.scheduleLog  = stored.scheduleLog;
-          if (stored.doseLogs && stored.doseLogs.length)        s.doseLogs     = stored.doseLogs;
-          if (stored.doctorVisits && stored.doctorVisits.length) s.doctorVisits = stored.doctorVisits;
-        });
-        showToast("✓ 已成功加入配對");
-        return;
-      }
-    } catch(e) {}
-    // Code not found locally — create a pending pair
-    var pairId = uid();
-    update(function(s) {
-      s.pair = { id:pairId, patientId:null, supporterId:user.id, inviteCode:code, locked:false, createdAt:new Date().toISOString() };
-      if (s.user) s.user.pairId = pairId;
-    });
-    showToast("✓ 邀請碼已記錄，等待吃藥者確認");
-  }
+  var _inp = useState(""); var inputCode = _inp[0]; var setInputCode = _inp[1];
+  var _err = useState(""); var joinErr   = _err[0]; var setJoinErr   = _err[1];
 
   function copyCode() {
     try { navigator.clipboard.writeText(myCode); showToast("✓ 已複製邀請碼"); }
     catch(e) { showToast("邀請碼：" + myCode); }
+  }
+
+  // Create a new pair (this user is patient, no partner yet)
+  function createAndSkip() {
+    var pairId = uid();
+    var pair = {
+      id: pairId, patientId: user.id, supporterId: null,
+      inviteCode: myCode, locked: false, createdAt: new Date().toISOString()
+    };
+    update(function(s) {
+      s.pair = pair;
+      if (s.user) s.user.pairId = pairId;
+    });
+    showToast("✓ 已建立，可稍後邀請陪同者");
+  }
+
+  // Enter partner's invite code to join their pair
+  function joinByCode() {
+    var code = inputCode.trim().toUpperCase();
+    if (code.length < 4) { setJoinErr("請輸入至少 4 位邀請碼"); return; }
+    setJoinErr("");
+
+    // Look for matching pair in localStorage
+    try {
+      var stored = safeJSON(localStorage.getItem(STORAGE_KEY));
+      var ep = stored && stored.pair;
+      if (ep && ep.inviteCode === code) {
+        // Found — join this pair and copy all its data
+        update(function(s) {
+          s.pair = Object.assign({}, ep, {
+            supporterId: user.id,
+            locked: true
+          });
+          if (s.user) s.user.pairId = ep.id;
+          // Share the paired user's data
+          if (stored.medications  && stored.medications.length)   s.medications  = stored.medications;
+          if (stored.scheduleLog)                                  s.scheduleLog  = stored.scheduleLog;
+          if (stored.doseLogs     && stored.doseLogs.length)       s.doseLogs     = stored.doseLogs;
+          if (stored.doctorVisits && stored.doctorVisits.length)   s.doctorVisits = stored.doctorVisits;
+        });
+        showToast("✓ 已成功綁定，共用同一份紀錄");
+        return;
+      }
+    } catch(e) {}
+
+    // Code not found locally — store as pending (partner hasn't set up yet)
+    var pairId = uid();
+    update(function(s) {
+      s.pair = {
+        id: pairId, patientId: null, supporterId: user.id,
+        inviteCode: code, locked: false, createdAt: new Date().toISOString()
+      };
+      if (s.user) s.user.pairId = pairId;
+    });
+    showToast("✓ 邀請碼已記錄，等待對方確認");
   }
 
   return _jsxRuntime.jsxs("div", { className: "app", children: [
@@ -1765,33 +1851,60 @@ function PairSetupFlow(props) {
         _jsxRuntime.jsx("p",  { children: "PAIRCARE" }),
       ]}),
 
-      user.role === "patient" && _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
-        _jsxRuntime.jsx("h2", { children: "建立你的配對" }),
-        _jsxRuntime.jsxs("div", { style:{background:"var(--rose-pale)",borderRadius:12,padding:"20px 16px",textAlign:"center",marginBottom:16,border:"1.5px dashed var(--rose-light)"}, children: [
-          _jsxRuntime.jsx("div", { style:{fontFamily:"'DM Mono',monospace",fontSize:"2.4rem",color:"var(--rose)",letterSpacing:"0.3em",fontWeight:500}, children: myCode }),
-          _jsxRuntime.jsx("p",   { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginTop:6}, children: "這是你的邀請碼，傳給陪同者" }),
-        ]}),
-        _jsxRuntime.jsx("button", { className:"btn btn-secondary btn-sm", style:{marginBottom:12,marginTop:0}, onClick:copyCode, children:"複製邀請碼" }),
-        _jsxRuntime.jsx("button", { className:"btn btn-primary", onClick:createPair, children:"建立配對並開始" }),
-      ]}),
+      _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
+        _jsxRuntime.jsx("h2", { children: "綁定對象（選填）" }),
+        _jsxRuntime.jsx("p", {
+          style:{fontSize:"0.82rem",color:"var(--ink-muted)",marginBottom:20,lineHeight:1.6},
+          children: "輸入對方的邀請碼，綁定後共用同一份用藥紀錄。也可略過，之後再綁定。"
+        }),
 
-      user.role === "supporter" && _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
-        _jsxRuntime.jsx("h2", { children: "輸入吃藥者的邀請碼" }),
+        // My invite code (so partner can use it)
+        _jsxRuntime.jsxs("div", {
+          style:{background:"var(--rose-pale)",borderRadius:12,padding:"14px 16px",
+                 textAlign:"center",marginBottom:20,border:"1.5px dashed var(--rose-light)"},
+          children: [
+            _jsxRuntime.jsx("p", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:6}, children:"你的邀請碼（傳給對方）" }),
+            _jsxRuntime.jsx("div", {
+              style:{fontFamily:"'DM Mono',monospace",fontSize:"2rem",color:"var(--rose)",letterSpacing:"0.3em",fontWeight:500},
+              children: myCode
+            }),
+            _jsxRuntime.jsx("button", {
+              className:"btn btn-ghost btn-sm",
+              style:{marginTop:6},
+              onClick: copyCode,
+              children:"複製邀請碼"
+            }),
+          ]
+        }),
+
+        // Enter partner's code
         _jsxRuntime.jsxs("div", { className: "field", children: [
-          _jsxRuntime.jsx("label", { children: "邀請碼" }),
+          _jsxRuntime.jsx("label", { children: "輸入對方的邀請碼" }),
           _jsxRuntime.jsx("input", {
             type:"text", maxLength:8, value:inputCode,
             placeholder:"XXXXXX", autoFocus:true,
-            style:{textAlign:"center",fontSize:"1.8rem",letterSpacing:"0.3em",fontFamily:"'DM Mono',monospace"},
-            onChange: function(e) { setInputCode(e.target.value.toUpperCase()); setJoinErr(""); }
+            style:{textAlign:"center",fontSize:"1.6rem",letterSpacing:"0.3em",fontFamily:"'DM Mono',monospace"},
+            onChange: function(e){ setInputCode(e.target.value.toUpperCase()); setJoinErr(""); }
           }),
           joinErr && _jsxRuntime.jsx("p", { style:{color:"var(--rose)",fontSize:"0.75rem",marginTop:4}, children:joinErr }),
         ]}),
-        _jsxRuntime.jsx("button", { className:"btn btn-primary", onClick:joinPair, children:"加入配對" }),
+
+        _jsxRuntime.jsx("button", {
+          className:"btn btn-primary",
+          onClick: joinByCode,
+          children:"綁定"
+        }),
+        _jsxRuntime.jsx("button", {
+          className:"btn btn-secondary",
+          style:{marginTop:0},
+          onClick: createAndSkip,
+          children:"略過，單人使用"
+        }),
       ]}),
     ]}),
   ]});
 }
+
 
 // ── 11. PROFILE MODAL V8 ──────────────────────────────────────────────────────
 function ProfileModalV8(props) {
@@ -2445,25 +2558,47 @@ function PeriodSelector(props) {
     }));
   }
 
-  // Periods excluding "custom" (shown separately)
   var mainPeriods = PERIODS.filter(function(p) { return p.id !== "custom"; });
 
   return _jsxRuntime.jsxs("div", { children: [
-    // ── Pill row ──────────────────────────────────────────────────────────
+    // ── Dropdown multi-select ─────────────────────────────────────────────
     _jsxRuntime.jsx("div", { className: "period-section-label", children: "服用時段" }),
-    _jsxRuntime.jsx("div", { className: "period-pills",
+    _jsxRuntime.jsx("select", {
+      multiple: true,
+      value: selected.map(function(s) { return s.periodId; }),
+      onChange: function(e) {
+        var chosen = Array.from(e.target.selectedOptions).map(function(o) { return o.value; });
+        // Add new ones, remove deselected
+        var next = chosen.map(function(pid) {
+          var existing = selected.find(function(s) { return s.periodId === pid; });
+          return existing || { periodId: pid, time: getDefaultPeriodTime(pid, periodTimes), dose: 1 };
+        });
+        onChange(next);
+      },
+      style: {
+        width: "100%",
+        borderRadius: 10,
+        border: "1.5px solid var(--border)",
+        background: "white",
+        padding: "6px 8px",
+        fontSize: "0.9rem",
+        fontFamily: "'Noto Serif TC', serif",
+        color: "var(--ink)",
+        marginTop: 4,
+        marginBottom: 12,
+        minHeight: 160,
+      },
       children: mainPeriods.map(function(p) {
-        var sel = isSelected(p.id);
-        return _jsxRuntime.jsxs("button", {
-          type: "button",
-          className: "period-pill" + (sel ? " selected" : ""),
-          onClick: function() { toggle(p.id); },
-          children: [
-            _jsxRuntime.jsx("span", { className: "period-pill-icon", children: p.icon }),
-            _jsxRuntime.jsx("span", { children: p.label }),
-          ]
+        return _jsxRuntime.jsx("option", {
+          value: p.id,
+          style: { padding: "6px 4px", fontSize: "0.9rem" },
+          children: p.icon + " " + p.label
         }, p.id);
       })
+    }),
+    _jsxRuntime.jsx("p", {
+      style: { fontSize:"0.72rem", color:"var(--ink-muted)", marginTop:-8, marginBottom:12 },
+      children: "可按住 Ctrl（Windows）或 Command（Mac）多選；手機直接點選多個"
     }),
 
     // ── Dose + time inputs for selected periods ───────────────────────────
@@ -2581,6 +2716,8 @@ function AddVisitModal({
   var [note, setNote] = useState("");
   // continuedIds: set of med ids the user checks as "still taking"
   var [continuedIds, setContinuedIds] = useState(new Set(medications.map(function(m){ return m.id; })));
+  // continuedRefills: { [medId]: number } — how many pills added at this visit
+  var [continuedRefills, setContinuedRefills] = useState({});
   var [newMeds, setNewMeds] = useState([]);
   function toggleContinue(id) {
     setContinuedIds(prev => {
@@ -2615,7 +2752,8 @@ function AddVisitModal({
       hospital,
       doctor,
       note,
-      continuedIds: (continuedIds).slice(),
+      continuedIds:    Array.from(continuedIds),
+      continuedRefills: continuedRefills,
       stoppedIds,
       newMeds: newMeds.filter(function(m){ return m.name && m.name.trim(); }).map(function(nm){ return { id:nm.id, name:nm.name, schedules:nm.schedules, totalCount:nm.totalCount }; })
     });
@@ -2697,26 +2835,54 @@ function AddVisitModal({
               marginBottom: 16
             },
             children: medications.map(med => {
-              var checked = continuedIds.has(med.id);
-              var dailyDose = (med.schedules || []).reduce((s, sc) => s + sc.dose, 0);
+              var checked   = continuedIds.has(med.id);
+              var dailyDose = (med.schedules || []).reduce(function(s, sc){ return s + sc.dose; }, 0);
+              var refill    = continuedRefills[med.id] || 0;
+              var newTotal  = med.remainingCount + refill;
               return (0, _jsxRuntime.jsxs)("div", {
-                className: "med-checkbox-row",
-                onClick: () => toggleContinue(med.id),
-                children: [(0, _jsxRuntime.jsxs)("div", {
-                  children: [(0, _jsxRuntime.jsx)("div", {
-                    className: "med-checkbox-label",
-                    children: med.name
-                  }), (0, _jsxRuntime.jsxs)("div", {
-                    className: "med-checkbox-sub",
-                    children: ["\u6BCF\u65E5 ", dailyDose, " \u9846 \xB7 \u5269 ", med.remainingCount, " \u9846"]
-                  })]
-                }), (0, _jsxRuntime.jsx)("div", {
-                  className: "cb-box " + checked ? "checked" : "",
-                  children: checked && (0, _jsxRuntime.jsx)("span", {
-                    className: "cb-check",
-                    children: "\u2713"
+                style: { borderBottom:"1.5px solid var(--border)", paddingBottom:12, marginBottom:12 },
+                children: [
+                  (0, _jsxRuntime.jsxs)("div", {
+                    className: "med-checkbox-row",
+                    style: { borderBottom:"none", paddingBottom:0, marginBottom: checked ? 10 : 0 },
+                    onClick: function(){ toggleContinue(med.id); },
+                    children: [
+                      (0, _jsxRuntime.jsxs)("div", { children: [
+                        (0, _jsxRuntime.jsx)("div", { className:"med-checkbox-label", children: med.name }),
+                        (0, _jsxRuntime.jsxs)("div", { className:"med-checkbox-sub",
+                          children: ["每日 ", dailyDose, " 顆 · 目前剩 ", med.remainingCount, " 顆"] })
+                      ]}),
+                      (0, _jsxRuntime.jsx)("div", {
+                        className: "cb-box" + (checked ? " checked" : ""),
+                        children: checked ? (0, _jsxRuntime.jsx)("span", { className:"cb-check", children:"✓" }) : null
+                      })
+                    ]
+                  }),
+                  checked && (0, _jsxRuntime.jsxs)("div", {
+                    style: { display:"flex", alignItems:"center", gap:10, paddingLeft:4 },
+                    children: [
+                      (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.82rem",color:"var(--ink-light)",whiteSpace:"nowrap"}, children:"這次補充" }),
+                      (0, _jsxRuntime.jsx)("input", {
+                        type:"number", min:0, value: refill,
+                        style:{ width:80, marginTop:0, textAlign:"center" },
+                        onClick: function(e){ e.stopPropagation(); },
+                        onChange: function(e){
+                          var v = Math.max(0, Number(e.target.value));
+                          setContinuedRefills(function(prev){
+                            var next = Object.assign({}, prev);
+                            next[med.id] = v;
+                            return next;
+                          });
+                        }
+                      }),
+                      (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.82rem",color:"var(--ink-muted)"}, children:"顆" }),
+                      refill > 0 && (0, _jsxRuntime.jsxs)("span", {
+                        style:{ fontSize:"0.78rem", color:"var(--sage-dark)", marginLeft:4 },
+                        children: ["→ 共剩 ", newTotal, " 顆"]
+                      })
+                    ]
                   })
-                })]
+                ]
               }, med.id);
             })
           }), stoppedIds.length > 0 && (0, _jsxRuntime.jsxs)("p", {
