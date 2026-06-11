@@ -9,8 +9,8 @@ var _jsxRuntime = {
 };
 
 // ── Supabase client ───────────────────────────────────────────────────────────
-var SUPABASE_URL  = "https://xqjhbobskdgqaopenuos.supabase.co";
-var SUPABASE_ANON = "sb_publishable_hFQFX2jLmi8c3X9n0SnRdw_O6IPv9st";
+var SUPABASE_URL  = "https://hmxajsjowjejqlvjrybe.supabase.co";
+var SUPABASE_ANON = "sb_publishable_bdx1QmWjMMdIAPxliLRmTA_-C_UsC2W";
 var _sbClient = null;
 
 function getSupabase() {
