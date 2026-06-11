@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v8 start');
+console.log('[PairCare] v9.4 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -1153,7 +1153,20 @@ window.App = function App() {
   var now    = _now[0];
   var setNow = _now[1];
 
-  var firedRef     = useRef({});
+  // firedRef: tracks notifications fired TODAY
+  // Structure: { date: "YYYY-MM-DD", fired: { key: true } }
+  // - Resets automatically when logicalDate changes (cross-day)
+  // - Persisted in sessionStorage so reload doesn't re-fire today's alerts
+  var firedRef = useRef((function() {
+    try {
+      var stored = JSON.parse(sessionStorage.getItem("paircare_fired") || "{}");
+      var today  = getLogicalDate(4); // use default 4 until settings loaded
+      if (stored.date === today && stored.fired && typeof stored.fired === "object") {
+        return { date: stored.date, fired: stored.fired };
+      }
+    } catch(e) {}
+    return { date: getLogicalDate(4), fired: {} };
+  })());
   var lastSavedRef = useRef(null);
   var authSubRef   = useRef(null);
 
@@ -1308,31 +1321,97 @@ window.App = function App() {
     var safeMeds = Array.isArray(state.medications) ? state.medications : [];
     var safeLog  = state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {};
     var settings = state.settings || { dayResetHour: 4, reminderTimes: [] };
+    var resetHour = settings.dayResetHour || 4;
+
+    function saveFired() {
+      // Persist today's fired keys to sessionStorage
+      // so page reload doesn't re-fire already-sent notifications
+      try {
+        sessionStorage.setItem("paircare_fired", JSON.stringify({
+          date:  firedRef.current.date,
+          fired: firedRef.current.fired
+        }));
+      } catch(e) {}
+    }
+
+    function checkAndResetDate(date) {
+      // If logicalDate changed (crossed dayResetHour), clear yesterday's fired keys
+      if (firedRef.current.date !== date) {
+        console.log("[PairCare] new logical date:", date, "— resetting fired notifications");
+        firedRef.current = { date: date, fired: {} };
+        try { sessionStorage.removeItem("paircare_fired"); } catch(e) {}
+      }
+    }
+
+    function hasFired(key) {
+      return !!firedRef.current.fired[key];
+    }
+
+    function markFired(key) {
+      firedRef.current.fired[key] = true;
+      saveFired();
+    }
+
+    // ── Helpers: resolve base time for a schedule ──────────────────────────
+    // Priority: 1) settings.periodTimes  2) 14-day average  3) PERIOD_MAP default
+    function resolveBaseTime(sched, medId) {
+      // 1. User-configured period time
+      var pt = settings.periodTimes && settings.periodTimes[sched.periodId];
+      if (pt) return toMins(pt);
+
+      // 2. 14-day average from doseLogs
+      var safeLogs = Array.isArray(state.doseLogs) ? state.doseLogs : [];
+      var cutoff   = new Date();
+      cutoff.setDate(cutoff.getDate() - 14);
+      var cutoffISO = cutoff.toISOString();
+      var relevant  = safeLogs.filter(function(l) {
+        return l && l.medicationId === medId
+          && l.periodId === sched.periodId
+          && l.takenAt && l.takenAt > cutoffISO
+          && l.status === "taken";
+      });
+      if (relevant.length >= 3) {
+        // Average the HH:MM portion of takenAt
+        var totalMins = relevant.reduce(function(sum, l) {
+          return sum + toMins(l.takenAt.slice(11, 16));
+        }, 0);
+        return Math.round(totalMins / relevant.length);
+      }
+
+      // 3. PERIOD_MAP default
+      var p = PERIOD_MAP[sched.periodId];
+      return p ? toMins(p.defaultTime) : -1; // -1 = no data, skip
+    }
 
     function check() {
-      var date = getLogicalDate(settings.dayResetHour || 4);
+      var date = getLogicalDate(resetHour);
       var nowM = now.getHours() * 60 + now.getMinutes();
       var minutesBefore = (settings.reminderMinutesBefore && settings.reminderMinutesBefore.length)
         ? settings.reminderMinutesBefore
-        : [10]; // default: 10 minutes before
+        : [10];
+
+      // ① Reset fired keys if day has changed
+      checkAndResetDate(date);
+
+      // User info for caregiver notification text
+      var userName = (state.user && state.user.name) || "用藥者";
 
       safeMeds.filter(function(m) { return m && m.status === "active"; }).forEach(function(med) {
         (med.schedules || []).forEach(function(sched) {
-          var key     = doseKey(date, med.id, sched.periodId);
-          var log     = safeLog[key];
-          if (log) return; // already taken
+          var key    = doseKey(date, med.id, sched.periodId);
+          var log    = safeLog[key];
+          if (log) return; // already taken — no reminder needed
 
-          var schedM  = toMins(periodTime(sched, settings.periodTimes));
-          var diff    = nowM - schedM; // positive = past scheduled time
-          var lbl     = PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].label;
+          var schedM = toMins(periodTime(sched, settings.periodTimes));
+          var diff   = nowM - schedM;
+          var lbl    = PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].label;
 
-          // Fire each "X minutes before" reminder
+          // ② X minutes BEFORE reminder
           minutesBefore.forEach(function(mins) {
-            var fireKey = key + "_before_" + mins;
-            // diff == -mins means we are exactly `mins` minutes before scheduled time
-            var minsUntil = schedM - nowM; // positive = future
-            if (minsUntil >= mins && minsUntil < mins + 2 && !firedRef.current[fireKey]) {
-              firedRef.current[fireKey] = true;
+            var fireKey   = key + "_before_" + mins;
+            var minsUntil = schedM - nowM;
+            if (minsUntil >= mins && minsUntil < mins + 2 && !hasFired(fireKey)) {
+              markFired(fireKey);
               notify(
                 "PairCare｜" + mins + " 分鐘後吃藥",
                 (lbl || "") + " 還有 " + mins + " 分鐘，準備吃 " + med.name
@@ -1340,20 +1419,40 @@ window.App = function App() {
             }
           });
 
-          // Also fire at scheduled time (diff 0-2 min)
-          if (diff >= 0 && diff < 2 && !firedRef.current[key + "_due"]) {
-            firedRef.current[key + "_due"] = true;
+          // ③ On-time reminder (within 2-min window of scheduled time)
+          var dueKey = key + "_due";
+          if (diff >= 0 && diff < 2 && !hasFired(dueKey)) {
+            markFired(dueKey);
             notify("PairCare｜服藥提醒", "現在是" + (lbl || "") + "用藥時間，記得吃 " + med.name);
           }
 
-          // Late reminder: 90 min overdue
-          if (diff >= 90 && !firedRef.current[key + "_late"]) {
-            firedRef.current[key + "_late"] = true;
-            notify("PairCare｜還沒吃藥", med.name + " 超過 90 分鐘未記錄");
+          // ④ 90-minute overdue reminder (enhanced)
+          // Use priority-based base time: settings → 14-day avg → default
+          var lateKey  = key + "_late";
+          if (!hasFired(lateKey)) {
+            var baseM = resolveBaseTime(sched, med.id);
+            // baseM === -1 means no data available — skip
+            if (baseM >= 0 && (nowM - baseM) >= 90) {
+              markFired(lateKey);
+              var isSupporter = state.user && state.user.role === "supporter";
+              if (isSupporter) {
+                // Caregiver sees patient's name
+                notify(
+                  "⏰ PairCare｜用藥提醒",
+                  userName + " 的 " + med.name + "（" + (lbl || sched.periodId) + "）已超過預定時間 90 分鐘，尚未完成"
+                );
+              } else {
+                notify(
+                  "⏰ PairCare｜用藥提醒",
+                  med.name + "（" + (lbl || sched.periodId) + "）已超過預定時間 90 分鐘，尚未完成"
+                );
+              }
+            }
           }
         });
       });
     }
+
     check();
     var t = setInterval(check, 60000);
     return function() { clearInterval(t); };
