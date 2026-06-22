@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v10.5 start');
+console.log('[PairCare] v10.6 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -825,7 +825,10 @@ label {
 .empty-state p { font-size: 0.9rem; }
 
 .fab {
-  position: fixed; bottom: 82px; right: 18px; width: 54px; height: 54px;
+  position: fixed;
+  /* Nav bar height (~58px content + safe-area padding) + 18px gap above it */
+  bottom: calc(58px + env(safe-area-inset-bottom, 6px) + 18px);
+  right: 18px; width: 54px; height: 54px;
   border-radius: 50%; background: var(--rose); color: white; border: none;
   font-size: 1.5rem; cursor: pointer; box-shadow: 0 4px 18px rgba(196,120,90,0.45);
   display: flex; align-items: center; justify-content: center; transition: all 0.18s; z-index: 50;
@@ -2044,7 +2047,7 @@ function RefillCenterModal({ state, update, isViewer, onClose, showToast }) {
                 (0, _jsxRuntime.jsx)("input", {
                   type:"number", min:1, placeholder:"補充顆數",
                   value: refillInputs[med.id] || "",
-                  style:{flex:"1 1 auto",minWidth:0,width:"auto",marginTop:0,padding:"8px 10px",fontSize:"0.85rem",boxSizing:"border-box"},
+                  style:{flex:"1 1 0%",minWidth:80,width:"auto",marginTop:0,padding:"8px 10px",fontSize:"0.85rem",boxSizing:"border-box"},
                   onChange: function(e) {
                     var v = e.target.value;
                     setRefillInputs(function(prev) {
@@ -2743,7 +2746,7 @@ function VisitsPage({
               className: "visit-date-bar",
               children: [(0, _jsxRuntime.jsx)("span", {
                 className: "visit-date",
-                children: visit.date
+                children: /^\d{4}-\d{2}-\d{2}/.test(visit.date || "") ? visit.date : "日期未知"
               }), (0, _jsxRuntime.jsx)("span", {
                 className: "visit-hospital",
                 children: visit.hospital || visit.doctor || ""
