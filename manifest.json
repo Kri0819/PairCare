@@ -1,7 +1,7 @@
 {
   "name": "PairCare｜陪一刻",
   "short_name": "PairCare",
-  "description": "共享用藥紀錄工具",
+  "description": "雙人照護用藥紀錄工具",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

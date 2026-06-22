@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v9.4 start');
+console.log('[PairCare] v10 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -79,8 +79,8 @@ var _jsxRuntime = {
 };
 
 // ── Supabase client ───────────────────────────────────────────────────────────
-var SUPABASE_URL  = "https://hmxajsjowjejqlvjrybe.supabase.co";
-var SUPABASE_ANON = "sb_publishable_bdx1QmWjMMdIAPxliLRmTA_-C_UsC2W";
+var SUPABASE_URL  = "https://xqjhbobskdgqaopenuos.supabase.co";
+var SUPABASE_ANON = "sb_publishable_hFQFX2jLmi8c3X9n0SnRdw_O6IPv9st";
 var _sbClient = null;
 
 function getSupabase() {
@@ -1549,14 +1549,14 @@ window.App = function App() {
     ]}),
 
     _jsxRuntime.jsxs("div", { style: { flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }, children: [
-      tab === "today"  && _jsxRuntime.jsx(TodayPage,  { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, now:now }),
+      tab === "today"  && _jsxRuntime.jsx(DashboardPage, { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, now:now, setTab:setTab }),
       tab === "meds"   && _jsxRuntime.jsx(MedsPage,   { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate }),
       tab === "visits" && _jsxRuntime.jsx(VisitsPage, { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal }),
     ]}),
 
     _jsxRuntime.jsx("nav", { className: "nav", children:
       [
-        { id:"today",  label:"今日一刻", icon:Ico.today  },
+        { id:"today",  label:"陪伴首頁", icon:Ico.today  },
         { id:"meds",   label:"藥物清單", icon:Ico.meds   },
         { id:"visits", label:"看診紀錄", icon:Ico.visits },
       ].map(function(item) {
@@ -1615,6 +1615,10 @@ window.App = function App() {
         });
         showToast("✓ 看診紀錄已儲存"); setModal(null);
       }
+    }),
+    modal === "refillCenter" && _jsxRuntime.jsx(RefillCenterModal, {
+      state: state, update: update, isViewer: isSupporter,
+      onClose: function(){ setModal(null); }, showToast: showToast
     }),
     modal === "settings" && _jsxRuntime.jsx(SettingsModal, {
       state: state, update: update,
@@ -1699,28 +1703,57 @@ function RoleSelectFlow(props) {
   var update    = props.update;
   var showToast = props.showToast;
 
-  var _n = useState(""); var name = _n[0]; var setName = _n[1];
-  var _s = useState("name"); var step = _s[0]; var setStep = _s[1];
+  var _n    = useState(""); var name = _n[0]; var setName = _n[1];
+  var _role = useState(""); var role = _role[0]; var setRole = _role[1];
+  var _err  = useState(""); var err  = _err[0]; var setErr  = _err[1];
 
-  // If user has name but no role, skip to role
+  // Pre-fill name if already set
   useEffect(function() {
-    if (state.user && state.user.name) {
-      setName(state.user.name);
-      setStep("role");
-    }
+    if (state.user && state.user.name) setName(state.user.name);
   }, []);
 
-  function chooseRole(role) {
-    var finalName = name.trim() || (sbUser && sbUser.email ? sbUser.email.split("@")[0] : "用戶");
+  function confirm() {
+    if (!name.trim()) { setErr("請輸入暱稱"); return; }
+    if (!role)        { setErr("請選擇身份"); return; }
+    setErr("");
     update(function(s) {
       if (!s.user) s.user = {};
-      s.user.name = finalName;
+      s.user.name = name.trim();
       s.user.role = role;
       if (sbUser) { s.user.id = sbUser.id; s.user.email = sbUser.email || ""; }
       try { localStorage.setItem(STORAGE_KEY + "_user", JSON.stringify(s.user)); } catch(e) {}
     });
-    showToast("✓ 身份設定完成");
+    showToast("✓ 設定完成");
   }
+
+  var roleBtn = function(value, label, sub) {
+    var selected = role === value;
+    return _jsxRuntime.jsxs("div", {
+      onClick: function() { setRole(value); setErr(""); },
+      style: {
+        border: "1.5px solid " + (selected ? "var(--rose)" : "var(--border)"),
+        background: selected ? "var(--rose-pale)" : "white",
+        borderRadius: 12, padding: "14px 16px", cursor: "pointer",
+        marginBottom: 10, transition: "all 0.15s",
+      },
+      children: [
+        _jsxRuntime.jsxs("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between"}, children:[
+          _jsxRuntime.jsx("span", { style:{fontSize:"0.95rem",fontWeight:600,color:"var(--ink)"}, children: label }),
+          _jsxRuntime.jsx("div", {
+            style:{
+              width:20, height:20, borderRadius:"50%",
+              border: "2px solid " + (selected ? "var(--rose)" : "var(--border)"),
+              background: selected ? "var(--rose)" : "white",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0,
+            },
+            children: selected ? _jsxRuntime.jsx("div", { style:{width:8,height:8,borderRadius:"50%",background:"white"} }) : null
+          }),
+        ]}),
+        _jsxRuntime.jsx("div", { style:{fontSize:"0.78rem",color:"var(--ink-muted)",marginTop:4}, children: sub }),
+      ]
+    }, value);
+  };
 
   return _jsxRuntime.jsxs("div", { className: "app", children: [
     _jsxRuntime.jsx("style", { children: CSS }),
@@ -1729,40 +1762,32 @@ function RoleSelectFlow(props) {
         _jsxRuntime.jsx("h1", { children: "陪一刻" }),
         _jsxRuntime.jsx("p",  { children: "PAIRCARE" }),
       ]}),
+      _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
+        _jsxRuntime.jsx("h2", { children: "建立你的帳號" }),
 
-      step === "name" && _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
-        _jsxRuntime.jsx("h2", { children: "你叫什麼名字？" }),
+        // 暱稱
         _jsxRuntime.jsxs("div", { className: "field", children: [
-          _jsxRuntime.jsx("label", { children: "名字" }),
+          _jsxRuntime.jsx("label", { children: "暱稱" }),
           _jsxRuntime.jsx("input", {
             type: "text", value: name, autoFocus: true, placeholder: "例：小明",
-            onChange: function(e) { setName(e.target.value); },
-            onKeyDown: function(e) { if (e.key === "Enter" && name.trim()) setStep("role"); }
+            onChange: function(e) { setName(e.target.value); setErr(""); },
+            onKeyDown: function(e) { if (e.key === "Enter") confirm(); }
           }),
         ]}),
-        _jsxRuntime.jsx("button", {
-          className: "btn btn-primary",
-          onClick: function() { if (name.trim()) setStep("role"); },
-          children: "下一步"
-        }),
-      ]}),
 
-      step === "role" && _jsxRuntime.jsxs("div", { className: "onboard-card", children: [
-        _jsxRuntime.jsxs("h2", { children: ["嗨 ", name || "你好", "，你的身份是？"] }),
+        // 身份選擇
+        _jsxRuntime.jsx("label", { style:{marginBottom:8,display:"block"}, children: "我的身份" }),
+        roleBtn("patient",   "吃藥者", "管理自己的用藥紀錄"),
+        roleBtn("supporter", "陪同者", "陪伴並查看對方的紀錄"),
+
+        // 錯誤提示
+        err && _jsxRuntime.jsx("p", { style:{color:"var(--rose)",fontSize:"0.78rem",marginBottom:8}, children: err }),
+
         _jsxRuntime.jsx("button", {
           className: "btn btn-primary",
-          onClick: function() { chooseRole("patient"); },
-          children: "我是吃藥者（建立紀錄）"
-        }),
-        _jsxRuntime.jsx("button", {
-          className: "btn btn-secondary",
-          onClick: function() { chooseRole("supporter"); },
-          children: "我是陪同者（查看紀錄）"
-        }),
-        _jsxRuntime.jsx("button", {
-          className: "btn btn-ghost",
-          onClick: function() { setStep("name"); },
-          children: "← 修改名字"
+          style: { marginTop: 8 },
+          onClick: confirm,
+          children: "確認，繼續"
         }),
       ]}),
     ]}),
@@ -1907,6 +1932,114 @@ function PairSetupFlow(props) {
 
 
 // ── 11. PROFILE MODAL V8 ──────────────────────────────────────────────────────
+// ─── Refill Center Modal ──────────────────────────────────────────────────────
+// Shows estimated days remaining per medication, with manual "已補藥" action
+function RefillCenterModal({ state, update, isViewer, onClose, showToast }) {
+  var safeMeds = Array.isArray(state.medications) ? state.medications : [];
+  var activeMeds = safeMeds.filter(function(m) { return m && m.status === "active"; });
+
+  var _refillInputs = useState({});
+  var refillInputs = _refillInputs[0];
+  var setRefillInputs = _refillInputs[1];
+
+  function markRefilled(med) {
+    var amount = Number(refillInputs[med.id]) || 0;
+    if (amount <= 0) { showToast("請輸入補充顆數"); return; }
+    update(function(s) {
+      var m = s.medications.find(function(mm){ return mm.id === med.id; });
+      if (m) {
+        m.remainingCount = (m.remainingCount || 0) + amount;
+        m.totalCount = Math.max(m.totalCount || 0, m.remainingCount);
+      }
+    });
+    setRefillInputs(function(prev) {
+      var next = Object.assign({}, prev);
+      delete next[med.id];
+      return next;
+    });
+    showToast("✓ 已記錄補藥 +" + amount + " 顆");
+  }
+
+  var rows = activeMeds.map(function(med) {
+    var dailyDose = (med.schedules || []).reduce(function(s, sc){ return s + sc.dose; }, 0);
+    var est = estimateFinishDate(med.remainingCount, dailyDose);
+    var level = "normal";
+    if (est) {
+      if (est.days <= 3) level = "red";
+      else if (est.days <= 7) level = "yellow";
+    }
+    return { med: med, dailyDose: dailyDose, est: est, level: level };
+  }).sort(function(a, b) {
+    // Sort: red first, then yellow, then normal
+    var order = { red: 0, yellow: 1, normal: 2 };
+    return order[a.level] - order[b.level];
+  });
+
+  return (0, _jsxRuntime.jsx)("div", {
+    className: "modal-overlay",
+    onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
+    children: (0, _jsxRuntime.jsxs)("div", { className: "modal", children: [
+      (0, _jsxRuntime.jsxs)("div", { className: "modal-top", children: [
+        (0, _jsxRuntime.jsx)("div", { className: "modal-handle" }),
+        (0, _jsxRuntime.jsx)("h3", { children: "補藥中心" }),
+      ]}),
+      (0, _jsxRuntime.jsxs)("div", { className: "modal-scroll", children: [
+
+        rows.length === 0 && (0, _jsxRuntime.jsxs)("div", { className: "empty-state", children: [
+          (0, _jsxRuntime.jsx)("div", { className: "icon", children: "💊" }),
+          (0, _jsxRuntime.jsx)("p", { children: "目前沒有使用中的藥物" }),
+        ]}),
+
+        rows.map(function(row) {
+          var med = row.med, est = row.est, level = row.level;
+          var badgeColor = level === "red" ? "#D9534F" : level === "yellow" ? "#E0A82E" : "var(--sage)";
+          var badgeBg    = level === "red" ? "#FDEEEE" : level === "yellow" ? "var(--amber-pale)" : "var(--sage-pale)";
+          return (0, _jsxRuntime.jsxs)("div", {
+            key: med.id,
+            style: { border:"1.5px solid var(--border)", borderRadius:12, padding:"14px 16px", marginBottom:12 },
+            children: [
+              (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}, children: [
+                (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.95rem",fontWeight:600,color:"var(--ink)"}, children: med.name }),
+                est && (0, _jsxRuntime.jsx)("span", {
+                  style:{fontSize:"0.7rem",fontWeight:600,padding:"3px 9px",borderRadius:20,background:badgeBg,color:badgeColor},
+                  children: level === "red" ? "🔴 即將不足" : level === "yellow" ? "🟡 庫存偏低" : "✓ 正常"
+                }),
+              ]}),
+              (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"0.82rem",color:"var(--ink-light)",marginBottom:10}, children: [
+                "剩餘 ", med.remainingCount, " 顆",
+                est && (" · 約可服用 " + est.days + " 天"),
+                est && (" · 預計 " + est.date + " 吃完"),
+              ]}),
+              !isViewer && (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",alignItems:"center",gap:8}, children: [
+                (0, _jsxRuntime.jsx)("input", {
+                  type:"number", min:1, placeholder:"補充顆數",
+                  value: refillInputs[med.id] || "",
+                  style:{flex:1,marginTop:0,padding:"8px 10px",fontSize:"0.85rem"},
+                  onChange: function(e) {
+                    var v = e.target.value;
+                    setRefillInputs(function(prev) {
+                      var next = Object.assign({}, prev);
+                      next[med.id] = v;
+                      return next;
+                    });
+                  }
+                }),
+                (0, _jsxRuntime.jsx)("button", {
+                  className: "btn btn-secondary btn-sm", style:{marginTop:0,flexShrink:0},
+                  onClick: function(){ markRefilled(med); },
+                  children: "已補藥"
+                }),
+              ]}),
+            ]
+          });
+        }),
+
+        (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:8,width:"100%"}, onClick:onClose, children:"關閉" }),
+      ]}),
+    ]})
+  });
+}
+
 function ProfileModalV8(props) {
   var state       = props.state;
   var update      = props.update;
@@ -1994,14 +2127,15 @@ function ProfileModalV8(props) {
 
 console.log('[PairCare] v8 definitions complete');
 
-function TodayPage({
+function DashboardPage({
   state,
   update,
   isViewer,
   showToast,
   setModal,
   logicalDate,
-  now
+  now,
+  setTab
 }) {
   // ── Guard: ensure all state arrays exist before use ──
   var safeMeds     = Array.isArray(state.medications)  ? state.medications  : [];
@@ -2014,53 +2148,51 @@ function TodayPage({
   var dayResetHour = safeSettings.dayResetHour || 4;
   var nowMins = now.getHours() * 60 + now.getMinutes();
 
-  // Build period groups: { periodId, label, icon, time, meds[] }
+  // ── Build period groups (reused from original TodayPage logic) ──────────
   var periodGroupMap = {};
-  activeMeds.forEach(med => {
-    (med.schedules || []).forEach(sched => {
+  activeMeds.forEach(function(med) {
+    (med.schedules || []).forEach(function(sched) {
       var pid = sched.periodId;
       if (!periodGroupMap[pid]) {
         periodGroupMap[pid] = {
           periodId: pid,
-          label: PERIOD_MAP[pid] && PERIOD_MAP[pid].label || pid,
-          icon: PERIOD_MAP[pid] && PERIOD_MAP[pid].icon || "⏰",
-          time: periodTime(sched),
+          label: (PERIOD_MAP[pid] && PERIOD_MAP[pid].label) || pid,
+          icon:  (PERIOD_MAP[pid] && PERIOD_MAP[pid].icon)  || "⏰",
+          time: periodTime(sched, safeSettings.periodTimes),
           meds: []
         };
       }
       periodGroupMap[pid].meds.push({
-        med,
-        sched,
+        med: med,
+        sched: sched,
         key: doseKey(logicalDate, med.id, pid)
       });
     });
   });
-  var groups = Object.values(periodGroupMap).sort((a, b) => toMins(a.time) - toMins(b.time));
+  var groups = Object.values(periodGroupMap).sort(function(a,b){ return toMins(a.time) - toMins(b.time); });
   var totalGroups = groups.length;
-  var doneGroups = groups.filter(g => g.meds.every(({
-    key
-  }) => !!((state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key] && (state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key].takenAt))).length;
+  var doneGroups = groups.filter(function(g) {
+    return g.meds.every(function(item) {
+      var log = safeLog[item.key];
+      return !!(log && (log.takenAt || log.displayTime));
+    });
+  }).length;
   var pct = totalGroups > 0 ? Math.round(doneGroups / totalGroups * 100) : 0;
-  var CIRC = 2 * Math.PI * 26; // r=26
+  var CIRC = 2 * Math.PI * 26;
 
   function markPeriodTaken(group) {
     if (isViewer) return;
     var now_iso = new Date().toISOString();
-    var now_hhmm = now_iso.slice(11, 16); // "HH:MM" in UTC — display only
+    var now_hhmm = now_iso.slice(11, 16);
     try { now_hhmm = new Date().toTimeString().slice(0, 5); } catch(e) {}
     update(function(s) {
       group.meds.forEach(function(item) {
-        var key  = item.key;
-        var sched = item.sched;
-        var med   = item.med;
-        // Full record: takenAt (ISO), displayTime (HH:MM local), periodId, medicationId
+        var key = item.key, sched = item.sched, med = item.med;
         s.scheduleLog[key] = {
-          takenAt:      now_iso,
-          displayTime:  now_hhmm,
-          periodId:     sched.periodId,
-          medicationId: med.id,
+          takenAt: now_iso, displayTime: now_hhmm,
+          periodId: sched.periodId, medicationId: med.id,
         };
-        var m = s.medications.find(function(m){ return m.id === med.id; });
+        var m = s.medications.find(function(mm){ return mm.id === med.id; });
         if (m) m.remainingCount = Math.max(0, (m.remainingCount || 0) - sched.dose);
       });
     });
@@ -2068,14 +2200,11 @@ function TodayPage({
   }
   function undoPeriod(group) {
     if (isViewer) return;
-    update(s => {
-      group.meds.forEach(({
-        key,
-        sched,
-        med
-      }) => {
-        if ((s.scheduleLog[key] && (s.scheduleLog[key].takenAt || s.scheduleLog[key].displayTime))) {
-          var m = s.medications.find(function(m){ return m.id === med.id; });
+    update(function(s) {
+      group.meds.forEach(function(item) {
+        var key = item.key, sched = item.sched, med = item.med;
+        if (s.scheduleLog[key] && (s.scheduleLog[key].takenAt || s.scheduleLog[key].displayTime)) {
+          var m = s.medications.find(function(mm){ return mm.id === med.id; });
           if (m) m.remainingCount = Math.min(m.totalCount, (m.remainingCount || 0) + sched.dose);
         }
         delete s.scheduleLog[key];
@@ -2083,166 +2212,255 @@ function TodayPage({
     });
     showToast("已撤銷");
   }
+
+  // ── ① Next dose: earliest non-done group ─────────────────────────────────
+  var nextDoseGroup = groups.find(function(g) {
+    return !g.meds.every(function(item) {
+      var log = safeLog[item.key];
+      return !!(log && (log.takenAt || log.displayTime));
+    });
+  });
+  var nextDoseInfo = null;
+  if (nextDoseGroup) {
+    var tMins = toMins(nextDoseGroup.time);
+    var diffMins = tMins - nowMins;
+    var isDue = diffMins <= 0;
+    var medNames = nextDoseGroup.meds.map(function(item){ return item.med.name; }).join("、");
+    var hrs = Math.floor(Math.abs(diffMins) / 60);
+    var mins = Math.abs(diffMins) % 60;
+    var countdownStr = isDue
+      ? "現在就是服藥時間"
+      : "還有 " + (hrs > 0 ? hrs + " 小時 " : "") + mins + " 分";
+    nextDoseInfo = { group: nextDoseGroup, medNames: medNames, isDue: isDue, countdownStr: countdownStr };
+  }
+
+  // ── ② Next visit countdown ────────────────────────────────────────────────
+  var upcomingVisits = safeVisits
+    .filter(function(v) { return v && v.nextVisitDate; })
+    .sort(function(a,b){ return new Date(a.nextVisitDate) - new Date(b.nextVisitDate); });
+  // Find the soonest future (or today) nextVisitDate
+  var todayStr = new Date().toISOString().slice(0,10);
+  var nextVisit = upcomingVisits.find(function(v){ return v.nextVisitDate >= todayStr; }) || upcomingVisits[upcomingVisits.length-1];
+  var visitDaysLeft = null;
+  var visitState = "normal"; // normal | reminder | alert
+  if (nextVisit) {
+    var d1 = new Date(todayStr), d2 = new Date(nextVisit.nextVisitDate);
+    visitDaysLeft = Math.round((d2 - d1) / 86400000);
+    if (visitDaysLeft <= 3) visitState = "alert";
+    else if (visitDaysLeft <= 7) visitState = "reminder";
+  }
+  function formatVisitDate(dateStr) {
+    try {
+      var d = new Date(dateStr);
+      var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
+      return d.getFullYear() + "/" + String(d.getMonth()+1).padStart(2,"0") + "/" + String(d.getDate()).padStart(2,"0") + "（" + weekday + "）";
+    } catch(e) { return dateStr; }
+  }
+
+  // ── ③ Stock status ────────────────────────────────────────────────────────
+  var stockNormal = 0, stockLow = 0;
+  activeMeds.forEach(function(med) {
+    var dailyDose = (med.schedules || []).reduce(function(s, sc){ return s + sc.dose; }, 0);
+    var est = estimateFinishDate(med.remainingCount, dailyDose);
+    if (est && est.days <= 5) stockLow++;
+    else stockNormal++;
+  });
+
+  // ── Top summary line ──────────────────────────────────────────────────────
+  var summaryParts = [];
+  summaryParts.push("今天已完成 " + doneGroups + " / " + totalGroups + " 次服藥");
+  if (nextDoseInfo) summaryParts.push("下一次服藥時間：" + nextDoseGroup.time);
+  if (nextVisit) summaryParts.push("距離回診：" + visitDaysLeft + " 天");
+  if (stockLow > 0) summaryParts.push("目前有 " + stockLow + " 項藥物即將不足");
+
   return (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, {
-    children: [(0, _jsxRuntime.jsx)("div", {
-      className: "header",
-      children: (0, _jsxRuntime.jsxs)("div", {
-        className: "header-row",
-        children: [(0, _jsxRuntime.jsx)("h2", {
-          children: "\u4ECA\u65E5\u4E00\u523B"
-        }), (0, _jsxRuntime.jsxs)("div", {
-          className: "header-icons",
-          children: [(0, _jsxRuntime.jsx)("span", {
-            className: "date-chip",
-            children: logicalDate
-          }), (0, _jsxRuntime.jsx)("button", {
-            className: "btn-icon",
-            onClick: () => setModal("settings"),
-            children: Ico.settings
-          }), (0, _jsxRuntime.jsx)("button", {
-            className: "btn-icon",
-            onClick: () => setModal("profile"),
-            children: Ico.user
-          })]
-        })]
+    children: [
+      (0, _jsxRuntime.jsx)("div", {
+        className: "header",
+        children: (0, _jsxRuntime.jsxs)("div", {
+          className: "header-row",
+          children: [
+            (0, _jsxRuntime.jsx)("h2", { children: "陪一刻" }),
+            (0, _jsxRuntime.jsxs)("div", {
+              className: "header-icons",
+              children: [
+                (0, _jsxRuntime.jsx)("span", { className: "date-chip", children: logicalDate }),
+                (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: function(){ setModal("settings"); }, children: Ico.settings }),
+                (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: function(){ setModal("profile"); }, children: Ico.user }),
+              ]
+            })
+          ]
+        })
+      }),
+      (0, _jsxRuntime.jsxs)("div", {
+        className: "main",
+        children: [
+
+          // ── Top status summary line ───────────────────────────────────────
+          (0, _jsxRuntime.jsx)("div", {
+            style: {
+              fontSize: "0.82rem", color: "var(--ink-light)", lineHeight: 1.7,
+              background: "var(--cream)", borderRadius: 12, padding: "12px 14px",
+              marginBottom: 16,
+            },
+            children: summaryParts.join(" · ")
+          }),
+
+          // ── ① Next dose card ───────────────────────────────────────────────
+          (0, _jsxRuntime.jsx)("div", {
+            className: "dash-card",
+            style: { background: "white", borderRadius: 14, border: "1.5px solid var(--border)", padding: "16px 18px", marginBottom: 12 },
+            children: nextDoseInfo
+              ? (0, _jsxRuntime.jsxs)("div", { children: [
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:6,fontWeight:600}, children:"下一次服藥" }),
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1.1rem",fontWeight:600,color:"var(--ink)"}, children: nextDoseInfo.medNames }),
+                  (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",alignItems:"baseline",gap:10,marginTop:4}, children:[
+                    (0, _jsxRuntime.jsx)("span", { style:{fontFamily:"'DM Mono',monospace",fontSize:"1.4rem",color:"var(--rose)"}, children: nextDoseGroup.time }),
+                    (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.82rem",color:"var(--ink-muted)"}, children: nextDoseInfo.countdownStr }),
+                  ]}),
+                  !isViewer && nextDoseInfo.isDue && (0, _jsxRuntime.jsx)("button", {
+                    className: "btn btn-primary", style:{marginTop:10},
+                    onClick: function(){ markPeriodTaken(nextDoseGroup); },
+                    children: "立即服藥"
+                  }),
+                ]})
+              : (0, _jsxRuntime.jsxs)("div", { style:{textAlign:"center",padding:"8px 0"}, children:[
+                  (0, _jsxRuntime.jsx)("div", {style:{fontSize:"1.4rem",marginBottom:4},children:"🌿"}),
+                  (0, _jsxRuntime.jsx)("p", { style:{fontSize:"0.85rem",color:"var(--ink-muted)"}, children: totalGroups === 0 ? "還沒有設定藥物時程" : "今天的藥都吃完了" }),
+                ]})
+          }),
+
+          // ── ② Next visit countdown card ───────────────────────────────────
+          (0, _jsxRuntime.jsx)("div", {
+            className: "dash-card",
+            onClick: function(){ setTab("visits"); },
+            style: {
+              background: visitState === "alert" ? "#FDEEEE" : visitState === "reminder" ? "var(--amber-pale)" : "white",
+              borderRadius: 14,
+              border: "1.5px solid " + (visitState === "alert" ? "#E8B4B4" : visitState === "reminder" ? "#DFC070" : "var(--border)"),
+              padding: "16px 18px", marginBottom: 12, cursor: "pointer",
+            },
+            children: nextVisit
+              ? (0, _jsxRuntime.jsxs)("div", { children: [
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:6,fontWeight:600}, children:"下次回診" }),
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1.05rem",fontWeight:600,color:"var(--ink)"}, children: formatVisitDate(nextVisit.nextVisitDate) }),
+                  (0, _jsxRuntime.jsxs)("div", { style:{marginTop:4,fontSize:"0.95rem",color: visitState==="alert"?"#C0392B":visitState==="reminder"?"var(--amber)":"var(--sage-dark)"}, children:[
+                    "還有 ", visitDaysLeft, " 天",
+                    visitState === "alert" && " ⚠ 即將回診",
+                    visitState === "reminder" && " 🔔 請留意安排",
+                  ]}),
+                ]})
+              : (0, _jsxRuntime.jsxs)("div", { children: [
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:6,fontWeight:600}, children:"下次回診" }),
+                  (0, _jsxRuntime.jsx)("p", { style:{fontSize:"0.85rem",color:"var(--ink-muted)"}, children:"尚未設定下次回診日期" }),
+                  !isViewer && (0, _jsxRuntime.jsx)("button", {
+                    className: "btn btn-secondary btn-sm", style:{marginTop:8},
+                    onClick: function(e){ e.stopPropagation(); setModal("addVisit"); },
+                    children: "設定回診日期"
+                  }),
+                ]})
+          }),
+
+          // ── ③ Stock status card ───────────────────────────────────────────
+          (0, _jsxRuntime.jsx)("div", {
+            className: "dash-card",
+            onClick: function(){ setModal("refillCenter"); },
+            style: { background:"white", borderRadius:14, border:"1.5px solid var(--border)", padding:"16px 18px", marginBottom:12, cursor:"pointer" },
+            children: (0, _jsxRuntime.jsxs)("div", { children: [
+              (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:8,fontWeight:600}, children:"庫存狀態" }),
+              (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",gap:20}, children: [
+                (0, _jsxRuntime.jsxs)("div", { children:[
+                  (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"1.3rem",fontWeight:600,color:"var(--sage-dark)"}, children:[stockNormal] }),
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.74rem",color:"var(--ink-muted)"}, children:"正常" }),
+                ]}),
+                (0, _jsxRuntime.jsxs)("div", { children:[
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1.3rem",fontWeight:600,color: stockLow>0 ? "#D9534F" : "var(--ink-muted)"}, children: stockLow }),
+                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.74rem",color:"var(--ink-muted)"}, children:"即將不足" }),
+                ]}),
+              ]}),
+            ]})
+          }),
+
+          // ── ④ Today's completion (circular progress) ─────────────────────
+          totalGroups > 0 && (0, _jsxRuntime.jsx)("div", {
+            className: "dash-card",
+            style: { background:"white", borderRadius:14, border:"1.5px solid var(--border)", padding:"16px 18px", marginBottom:20 },
+            children: (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",alignItems:"center",gap:16}, children: [
+              (0, _jsxRuntime.jsxs)("div", { className:"hero-progress", children: [
+                (0, _jsxRuntime.jsxs)("svg", { children: [
+                  (0, _jsxRuntime.jsx)("circle", { className:"track", cx:"34", cy:"34", r:"26" }),
+                  (0, _jsxRuntime.jsx)("circle", { className:"fill", cx:"34", cy:"34", r:"26", strokeDasharray:CIRC, strokeDashoffset: CIRC - CIRC * pct / 100 }),
+                ]}),
+                (0, _jsxRuntime.jsxs)("div", { className:"hero-center", children: [
+                  (0, _jsxRuntime.jsx)("div", { className:"num", children: doneGroups }),
+                  (0, _jsxRuntime.jsxs)("div", { className:"den", children: ["/ ", totalGroups] }),
+                ]}),
+              ]}),
+              (0, _jsxRuntime.jsxs)("div", { children: [
+                (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:4,fontWeight:600}, children:"今日服藥完成" }),
+                (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1rem",fontWeight:600,color:"var(--ink)"}, children: pct === 100 ? "今天全部完成 🌿" : doneGroups + " / " + totalGroups + " 次" }),
+              ]}),
+            ]})
+          }),
+
+          // ── Period-by-period list (kept below the cards, lower priority) ──
+          groups.length > 0 && groups.map(function(group) {
+            var allDone = group.meds.every(function(item){ var log = safeLog[item.key]; return !!(log && log.takenAt); });
+            var tMins2 = toMins(group.time);
+            var isLate = !allDone && nowMins - tMins2 > 30;
+            var isNow  = !allDone && nowMins - tMins2 >= 0 && nowMins - tMins2 <= 30;
+            var cardClass = "period-card";
+            if (allDone) cardClass += " is-done"; else if (isNow) cardClass += " is-now"; else if (isLate) cardClass += " is-late";
+            var firstDisplayTime = group.meds.map(function(item) {
+              var log = safeLog[item.key];
+              return log && (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : null));
+            }).filter(Boolean)[0];
+            return (0, _jsxRuntime.jsxs)("div", {
+              className: "period-group",
+              key: group.periodId,
+              children: [
+                (0, _jsxRuntime.jsxs)("div", { className:"period-title", children: [
+                  (0, _jsxRuntime.jsx)("span", { className:"period-icon", children: group.icon }),
+                  (0, _jsxRuntime.jsx)("span", { children: group.label }),
+                  (0, _jsxRuntime.jsx)("span", { className:"period-time", children: group.time }),
+                ]}),
+                (0, _jsxRuntime.jsxs)("div", { className: cardClass, children: [
+                  (0, _jsxRuntime.jsx)("div", { className:"period-meds", children:
+                    group.meds.map(function(item) {
+                      var log = safeLog[item.key];
+                      return (0, _jsxRuntime.jsxs)("div", { className:"period-med-row", key:item.key, children: [
+                        (0, _jsxRuntime.jsxs)("div", { children: [
+                          (0, _jsxRuntime.jsx)("div", { className:"period-med-name", children: item.med.name }),
+                          (0, _jsxRuntime.jsxs)("div", { className:"period-med-dose", children: [item.sched.dose, " 顆"] }),
+                        ]}),
+                        (0, _jsxRuntime.jsx)("div", { className:"period-med-check",
+                          children: log && (log.takenAt || log.displayTime)
+                            ? ("✅ " + (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : "")))
+                            : "○"
+                        }),
+                      ]});
+                    })
+                  }),
+                  (0, _jsxRuntime.jsxs)("div", { className: "period-footer" + (allDone ? " done" : isLate ? " late" : ""), children: [
+                    (0, _jsxRuntime.jsx)("div", { className:"period-footer-label",
+                      children: allDone ? ("✓ 已服藥 " + (firstDisplayTime || "")) : isLate ? ("⚠ 已超過 " + (nowMins - tMins2) + " 分鐘") : isNow ? "⏰ 現在服藥時間" : ""
+                    }),
+                    !isViewer && (allDone
+                      ? (0, _jsxRuntime.jsx)("button", { className:"btn-undo", onClick: function(){ undoPeriod(group); }, children:"撤銷" })
+                      : (0, _jsxRuntime.jsx)("button", { className:"btn-take-period", onClick: function(){ markPeriodTaken(group); }, children:"已服用" })
+                    ),
+                  ]}),
+                ]}),
+              ]
+            });
+          }),
+
+        ]
       })
-    }), (0, _jsxRuntime.jsxs)("div", {
-      className: "main",
-      children: [totalGroups > 0 && (0, _jsxRuntime.jsxs)("div", {
-        className: "today-hero",
-        children: [(0, _jsxRuntime.jsxs)("div", {
-          className: "hero-progress",
-          children: [(0, _jsxRuntime.jsxs)("svg", {
-            children: [(0, _jsxRuntime.jsx)("circle", {
-              className: "track",
-              cx: "34",
-              cy: "34",
-              r: "26"
-            }), (0, _jsxRuntime.jsx)("circle", {
-              className: "fill",
-              cx: "34",
-              cy: "34",
-              r: "26",
-              strokeDasharray: CIRC,
-              strokeDashoffset: CIRC - CIRC * pct / 100
-            })]
-          }), (0, _jsxRuntime.jsxs)("div", {
-            className: "hero-center",
-            children: [(0, _jsxRuntime.jsx)("div", {
-              className: "num",
-              children: doneGroups
-            }), (0, _jsxRuntime.jsxs)("div", {
-              className: "den",
-              children: ["/ ", totalGroups]
-            })]
-          })]
-        }), (0, _jsxRuntime.jsxs)("div", {
-          className: "hero-text",
-          children: [(0, _jsxRuntime.jsx)("h3", {
-            children: pct === 100 ? "今天全部完成 🌿" : doneGroups === 0 ? "今天還沒有紀錄" : "已完成 " + pct + "%"
-          }), (0, _jsxRuntime.jsx)("p", {
-            children: pct === 100 ? "謝謝你認真照顧自己" : "還有 " + totalGroups - doneGroups + " 個時段待服藥"
-          })]
-        })]
-      }), groups.length === 0 ? (0, _jsxRuntime.jsxs)("div", {
-        className: "empty-state",
-        children: [(0, _jsxRuntime.jsx)("div", {
-          className: "icon",
-          children: "\u2728"
-        }), (0, _jsxRuntime.jsx)("p", {
-          children: "\u9084\u6C92\u6709\u8A2D\u5B9A\u85E5\u7269\u6642\u7A0B"
-        }), !isViewer && (0, _jsxRuntime.jsx)("button", {
-          className: "btn btn-primary",
-          style: {
-            marginTop: 16,
-            display: "inline-flex"
-          },
-          onClick: () => setModal("addMed"),
-          children: "\u65B0\u589E\u85E5\u7269"
-        })]
-      }) : groups.map(group => {
-        var allDone = group.meds.every(({
-          key
-        }) => !!((state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key] && (state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key].takenAt));
-        var anyDone = group.meds.some(({
-          key
-        }) => !!((state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key] && (state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key].takenAt));
-        var tMins = toMins(group.time);
-        var isLate = !allDone && nowMins - tMins > 30;
-        var isNow = !allDone && nowMins - tMins >= 0 && nowMins - tMins <= 30;
-        var cardClass = "period-card";
-        if (allDone) cardClass += " is-done";else if (isNow) cardClass += " is-now";else if (isLate) cardClass += " is-late";
-        var firstTakenAt = group.meds.map(({
-          key
-        }) => ((state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key] && (state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key].takenAt)).filter(Boolean)[0];
-        var firstDisplayTime = group.meds.map(function(item) {
-          var log = safeLog[item.key];
-          return log && (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : null));
-        }).filter(Boolean)[0];
-        return (0, _jsxRuntime.jsxs)("div", {
-          className: "period-group",
-          children: [(0, _jsxRuntime.jsxs)("div", {
-            className: "period-title",
-            children: [(0, _jsxRuntime.jsx)("span", {
-              className: "period-icon",
-              children: group.icon
-            }), (0, _jsxRuntime.jsx)("span", {
-              children: group.label
-            }), (0, _jsxRuntime.jsx)("span", {
-              className: "period-time",
-              children: group.time
-            })]
-          }), (0, _jsxRuntime.jsxs)("div", {
-            className: cardClass,
-            children: [(0, _jsxRuntime.jsx)("div", {
-              className: "period-meds",
-              children: group.meds.map(({
-                med,
-                sched,
-                key
-              }) => {
-                var log = (state.scheduleLog && typeof state.scheduleLog === "object" ? state.scheduleLog : {})[key];
-                return (0, _jsxRuntime.jsxs)("div", {
-                  className: "period-med-row",
-                  children: [(0, _jsxRuntime.jsxs)("div", {
-                    children: [(0, _jsxRuntime.jsx)("div", {
-                      className: "period-med-name",
-                      children: med.name
-                    }), (0, _jsxRuntime.jsxs)("div", {
-                      className: "period-med-dose",
-                      children: [sched.dose, " \u9846"]
-                    })]
-                  }), (0, _jsxRuntime.jsx)("div", {
-                    className: "period-med-check",
-                    children: log && (log.takenAt || log.displayTime)
-                      ? ("✅ " + (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : "")))
-                      : "○"
-                  })]
-                }, key);
-              })
-            }), (0, _jsxRuntime.jsxs)("div", {
-              className: "period-footer " + allDone ? "done" : isLate ? "late" : "",
-              children: [(0, _jsxRuntime.jsx)("div", {
-                className: "period-footer-label",
-                children: (allDone ? ("✓ 已服藥 " + (firstDisplayTime || firstTakenAt || "")) : (isLate ? ("⚠ 已超過 " + (nowMins - tMins) + " 分鐘") : (isNow ? "⏰ 現在服藥時間" : "")))
-              }), !isViewer && (allDone ? (0, _jsxRuntime.jsx)("button", {
-                className: "btn-undo",
-                onClick: function(){ undoPeriod(group); },
-                children: "\u64A4\u92B7"
-              }) : (0, _jsxRuntime.jsx)("button", {
-                className: "btn-take-period",
-                onClick: function(){ markPeriodTaken(group); },
-                children: "\u5DF2\u670D\u7528"
-              }))]
-            })]
-          })]
-        }, group.periodId);
-      })]
-    })]
+    ]
   });
 }
 
-// ─── Meds page ────────────────────────────────────────────────────────────────
 function MedsPage({
   state,
   update,
@@ -2268,11 +2486,19 @@ function MedsPage({
         className: "header-row",
         children: [(0, _jsxRuntime.jsx)("h2", {
           children: "\u85E5\u7269\u6E05\u55AE"
-        }), !isViewer && (0, _jsxRuntime.jsx)("button", {
-          className: "btn-icon",
-          onClick: () => setModal("addMed"),
-          children: Ico.plus
-        })]
+        }), (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",gap:8}, children: [
+          (0, _jsxRuntime.jsx)("button", {
+            className: "btn-icon",
+            onClick: function(){ setModal("refillCenter"); },
+            title: "補藥中心",
+            children: "💊"
+          }),
+          !isViewer && (0, _jsxRuntime.jsx)("button", {
+            className: "btn-icon",
+            onClick: () => setModal("addMed"),
+            children: Ico.plus
+          })
+        ]})]
       })
     }), (0, _jsxRuntime.jsx)("div", {
       className: "main",
@@ -2328,7 +2554,13 @@ function MedCard({
   var pct = med.totalCount > 0 ? Math.round(med.remainingCount / med.totalCount * 100) : 0;
   var dailyDose = (med.schedules || []).reduce((s, sc) => s + sc.dose, 0);
   var est = estimateFinishDate(med.remainingCount, dailyDose);
-  var low = est && est.days < 7;
+  // Low-stock thresholds: <=5 days = yellow warning, <=2 days = red warning
+  var stockLevel = "";
+  if (est) {
+    if (est.days <= 2) stockLevel = "red";
+    else if (est.days <= 5) stockLevel = "yellow";
+  }
+  var low = stockLevel !== "";
   return (0, _jsxRuntime.jsxs)("div", {
     className: "med-card " + med.status,
     children: [(0, _jsxRuntime.jsxs)("div", {
@@ -2393,7 +2625,7 @@ function MedCard({
         className: "progress-fill",
         style: {
           width: pct + "%",
-          background: low ? "var(--rose)" : "var(--sage)"
+          background: stockLevel === "red" ? "#D9534F" : stockLevel === "yellow" ? "#E0A82E" : "var(--sage)"
         }
       })
     }), est && (0, _jsxRuntime.jsxs)("div", {
@@ -2403,18 +2635,17 @@ function MedCard({
       }), (0, _jsxRuntime.jsxs)("span", {
         className: "days",
         style: {
-          color: low ? "var(--rose)" : "var(--sage)"
+          color: stockLevel === "red" ? "#D9534F" : stockLevel === "yellow" ? "#E0A82E" : "var(--sage)"
         },
         children: [est.days, " \u5929"]
       }), (0, _jsxRuntime.jsxs)("span", {
         children: ["\uFF5C\u9810\u4F30 ", est.date, " \u5403\u5B8C"]
-      }), low && (0, _jsxRuntime.jsx)("span", {
-        style: {
-          color: "var(--rose)",
-          fontSize: "0.72rem",
-          marginLeft: 4
-        },
-        children: "\u26A0 \u5FEB\u8981\u4E0D\u5920\u4E86"
+      }), stockLevel === "red" && (0, _jsxRuntime.jsx)("span", {
+        style: { color:"#D9534F", fontSize:"0.72rem", marginLeft:4, fontWeight:600 },
+        children: "🔴 即將吃完，請盡快補藥"
+      }), stockLevel === "yellow" && (0, _jsxRuntime.jsx)("span", {
+        style: { color:"#E0A82E", fontSize:"0.72rem", marginLeft:4, fontWeight:600 },
+        children: "🟡 庫存偏低，請留意補藥"
       })]
     }), !isViewer && (0, _jsxRuntime.jsx)("div", {
       className: "med-footer",
@@ -2428,6 +2659,30 @@ function MedCard({
 }
 
 // ─── Visits page ──────────────────────────────────────────────────────────────
+// Build a one-line human-readable summary of a visit's changes
+function buildVisitSummary(visit, getMedName) {
+  var parts = [];
+  var continuedIds = visit.continuedIds || [];
+  var stoppedIds   = visit.stoppedIds   || [];
+  var newMeds      = visit.newMeds      || [];
+  var refills      = visit.continuedRefills || {};
+
+  if (newMeds.length) {
+    parts.push("新增 " + newMeds.length + " 種藥物：" + newMeds.map(function(m){ return m.name; }).join("、"));
+  }
+  if (stoppedIds.length) {
+    parts.push("停用 " + stoppedIds.length + " 種藥物：" + stoppedIds.map(getMedName).join("、"));
+  }
+  var refillNames = continuedIds.filter(function(id){ return refills[id] > 0; }).map(function(id){
+    return getMedName(id) + " +" + refills[id] + "顆";
+  });
+  if (refillNames.length) {
+    parts.push("劑量調整：" + refillNames.join("、"));
+  }
+  if (!parts.length) return "本次無藥物變動";
+  return parts.join(" · ");
+}
+
 function VisitsPage({
   state,
   update,
@@ -2439,6 +2694,18 @@ function VisitsPage({
   function getMedName(id) {
     return ((Array.isArray(state.medications) ? state.medications : []).find(function(m){ return m.id === id; }) || {}).name || "—";
   }
+
+  // ── Visit summary header stats ────────────────────────────────────────────
+  var todayStr2 = new Date().toISOString().slice(0,10);
+  var futureVisits = state.doctorVisits.filter(function(v){ return v && v.nextVisitDate; })
+    .sort(function(a,b){ return new Date(a.nextVisitDate) - new Date(b.nextVisitDate); });
+  var nextVisitForHeader = futureVisits.find(function(v){ return v.nextVisitDate >= todayStr2; });
+  var lastVisit = sorted[0];
+  var totalVisitCount = sorted.length;
+  var safeMedsVP = Array.isArray(state.medications) ? state.medications : [];
+  var activeCount  = safeMedsVP.filter(function(m){ return m.status === "active"; }).length;
+  var stoppedCount = safeMedsVP.filter(function(m){ return m.status === "paused"; }).length;
+
   return (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, {
     children: [(0, _jsxRuntime.jsx)("div", {
       className: "header",
@@ -2454,7 +2721,34 @@ function VisitsPage({
       })
     }), (0, _jsxRuntime.jsx)("div", {
       className: "main",
-      children: sorted.length === 0 ? (0, _jsxRuntime.jsxs)("div", {
+      children: [
+
+        // ── Visit summary header ──────────────────────────────────────────
+        (0, _jsxRuntime.jsxs)("div", {
+          style: { background:"var(--cream)", borderRadius:14, padding:"16px 18px", marginBottom:18 },
+          children: [
+            (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",justifyContent:"space-between",marginBottom:10}, children: [
+              (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.78rem",color:"var(--ink-muted)"}, children:"下次回診" }),
+              (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.88rem",fontWeight:600,color:"var(--ink)"},
+                children: nextVisitForHeader ? nextVisitForHeader.nextVisitDate : "尚未設定" }),
+            ]}),
+            (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",justifyContent:"space-between",marginBottom:10}, children: [
+              (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.78rem",color:"var(--ink-muted)"}, children:"最近一次回診" }),
+              (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.88rem",fontWeight:600,color:"var(--ink)"},
+                children: lastVisit ? lastVisit.date : "—" }),
+            ]}),
+            (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",justifyContent:"space-between",marginBottom:10}, children: [
+              (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.78rem",color:"var(--ink-muted)"}, children:"總回診次數" }),
+              (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.88rem",fontWeight:600,color:"var(--ink)"}, children: totalVisitCount + " 次" }),
+            ]}),
+            (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",justifyContent:"space-between"}, children: [
+              (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.78rem",color:"var(--ink-muted)"}, children:"持續服用 / 已停藥" }),
+              (0, _jsxRuntime.jsxs)("span", { style:{fontSize:"0.88rem",fontWeight:600,color:"var(--ink)"}, children: [activeCount, " / ", stoppedCount] }),
+            ]}),
+          ]
+        }),
+
+      sorted.length === 0 ? (0, _jsxRuntime.jsxs)("div", {
         className: "empty-state",
         children: [(0, _jsxRuntime.jsx)("div", {
           className: "icon",
@@ -2491,6 +2785,15 @@ function VisitsPage({
                 className: "visit-note",
                 children: ["\u300C", visit.note, "\u300D"]
               }), (0, _jsxRuntime.jsxs)("div", {
+                style: {
+                  background:"var(--cream)", borderRadius:8, padding:"8px 12px",
+                  marginBottom:10, fontSize:"0.78rem", color:"var(--ink-light)", lineHeight:1.6
+                },
+                children: [
+                  (0, _jsxRuntime.jsx)("span", { style:{fontWeight:600,color:"var(--ink-muted)"}, children:"本次回診摘要　" }),
+                  buildVisitSummary(visit, getMedName)
+                ]
+              }), (0, _jsxRuntime.jsxs)("div", {
                 className: "change-list",
                 children: [(visit.continuedIds || []).map(id => (0, _jsxRuntime.jsxs)("div", {
                   className: "change-chip chip-continue",
@@ -2522,6 +2825,7 @@ function VisitsPage({
           })
         }, visit.id))
       })
+      ]
     }), !isViewer && (0, _jsxRuntime.jsx)("button", {
       className: "fab",
       onClick: () => setModal("addVisit"),
@@ -2561,76 +2865,71 @@ function PeriodSelector(props) {
   var mainPeriods = PERIODS.filter(function(p) { return p.id !== "custom"; });
 
   return _jsxRuntime.jsxs("div", { children: [
-    // ── Dropdown multi-select ─────────────────────────────────────────────
-    _jsxRuntime.jsx("div", { className: "period-section-label", children: "服用時段" }),
-    _jsxRuntime.jsx("select", {
-      multiple: true,
-      value: selected.map(function(s) { return s.periodId; }),
-      onChange: function(e) {
-        var chosen = Array.from(e.target.selectedOptions).map(function(o) { return o.value; });
-        // Add new ones, remove deselected
-        var next = chosen.map(function(pid) {
-          var existing = selected.find(function(s) { return s.periodId === pid; });
-          return existing || { periodId: pid, time: getDefaultPeriodTime(pid, periodTimes), dose: 1 };
-        });
-        onChange(next);
-      },
-      style: {
-        width: "100%",
-        borderRadius: 10,
-        border: "1.5px solid var(--border)",
-        background: "white",
-        padding: "6px 8px",
-        fontSize: "0.9rem",
-        fontFamily: "'Noto Serif TC', serif",
-        color: "var(--ink)",
-        marginTop: 4,
-        marginBottom: 12,
-        minHeight: 160,
-      },
+    _jsxRuntime.jsx("div", { className: "period-section-label", children: "服藥時段" }),
+
+    // ── Chip pills row ────────────────────────────────────────────────────
+    _jsxRuntime.jsx("div", {
+      style: { display:"flex", flexWrap:"wrap", gap:8, marginBottom:14 },
       children: mainPeriods.map(function(p) {
-        return _jsxRuntime.jsx("option", {
-          value: p.id,
-          style: { padding: "6px 4px", fontSize: "0.9rem" },
-          children: p.icon + " " + p.label
+        var sel = isSelected(p.id);
+        return _jsxRuntime.jsxs("button", {
+          type: "button",
+          onClick: function() { toggle(p.id); },
+          style: {
+            display:"inline-flex", alignItems:"center", gap:5,
+            padding:"7px 14px", borderRadius:999,
+            border: sel ? "1.5px solid var(--rose)" : "1.5px solid var(--border)",
+            background: sel ? "var(--rose-pale)" : "white",
+            color: sel ? "var(--rose-dark)" : "var(--ink-light)",
+            fontSize:"0.82rem", fontWeight:500, cursor:"pointer",
+            transition:"all 0.14s", whiteSpace:"nowrap",
+            fontFamily:"'Noto Serif TC',serif",
+          },
+          children: [
+            _jsxRuntime.jsx("span", { children: p.icon }),
+            _jsxRuntime.jsx("span", { children: p.label }),
+          ]
         }, p.id);
       })
     }),
-    _jsxRuntime.jsx("p", {
-      style: { fontSize:"0.72rem", color:"var(--ink-muted)", marginTop:-8, marginBottom:12 },
-      children: "可按住 Ctrl（Windows）或 Command（Mac）多選；手機直接點選多個"
-    }),
 
-    // ── Dose + time inputs for selected periods ───────────────────────────
-    selected.length > 0 && _jsxRuntime.jsxs("div", { className: "period-dose-area", children: [
-      _jsxRuntime.jsx("div", {
-        style: { fontSize:"0.72rem", color:"var(--ink-muted)", marginBottom:2, fontWeight:500 },
-        children: "每次劑量 & 時間"
-      }),
-      selected.map(function(sched) {
-        var p = PERIOD_MAP[sched.periodId];
-        if (!p) return null;
-        return _jsxRuntime.jsxs("div", { className: "period-dose-row-item", children: [
-          _jsxRuntime.jsxs("span", { className: "pill-label", children: [
-            p.icon, " ", p.label
-          ]}),
-          _jsxRuntime.jsx("input", {
-            type: "number", min: 0.5, step: 0.5,
-            value: sched.dose,
-            onChange: function(e) { updateItem(sched.periodId, { dose: Number(e.target.value) }); }
-          }),
-          _jsxRuntime.jsx("span", { className: "dose-unit", children: "顆" }),
-          _jsxRuntime.jsx("input", {
-            type: "time",
-            value: sched.time || getDefaultPeriodTime(sched.periodId, periodTimes),
-            onChange: function(e) { updateItem(sched.periodId, { time: e.target.value }); }
-          }),
-        ]}, sched.periodId);
-      })
-    ]}),
+    // ── Dose + time for selected periods ─────────────────────────────────
+    selected.length > 0 && _jsxRuntime.jsxs("div", {
+      style: { background:"var(--cream)", borderRadius:12, padding:"12px 14px", marginBottom:8 },
+      children: [
+        _jsxRuntime.jsx("div", {
+          style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:8,fontWeight:500},
+          children:"各時段劑量與時間"
+        }),
+        selected.map(function(sched) {
+          var p = PERIOD_MAP[sched.periodId];
+          if (!p) return null;
+          return _jsxRuntime.jsxs("div", {
+            style:{display:"flex",alignItems:"center",gap:8,marginBottom:8},
+            children: [
+              _jsxRuntime.jsxs("span", {
+                style:{fontSize:"0.82rem",color:"var(--ink-light)",minWidth:64,fontWeight:500},
+                children:[p.icon," ",p.label]
+              }),
+              _jsxRuntime.jsx("input", {
+                type:"number", min:0.5, step:0.5, value:sched.dose,
+                style:{width:64,marginTop:0,textAlign:"center",padding:"6px 8px"},
+                onChange:function(e){ updateItem(sched.periodId,{dose:Number(e.target.value)}); }
+              }),
+              _jsxRuntime.jsx("span",{style:{fontSize:"0.78rem",color:"var(--ink-muted)"},children:"顆"}),
+              _jsxRuntime.jsx("input", {
+                type:"time",
+                value:sched.time || getDefaultPeriodTime(sched.periodId, periodTimes),
+                style:{width:100,marginTop:0,padding:"6px 8px",fontSize:"0.85rem"},
+                onChange:function(e){ updateItem(sched.periodId,{time:e.target.value}); }
+              }),
+            ]
+          }, sched.periodId);
+        })
+      ]
+    }),
   ]});
 }
-
 
 // ─── Add Med Modal ────────────────────────────────────────────────────────────
 function AddMedModal(props) {
@@ -2654,7 +2953,7 @@ function AddMedModal(props) {
     children: [_jsxRuntime.jsxs("div", { className: "modal", children: [
       _jsxRuntime.jsxs("div", { className: "modal-top", children: [
         _jsxRuntime.jsx("div", { className: "modal-handle" }),
-        _jsxRuntime.jsx("h3", { children: "新增藥物" }),
+        _jsxRuntime.jsx("h3", { children: "這次看診拿了什麼藥？" }),
       ]}),
       _jsxRuntime.jsxs("div", { className: "modal-scroll", children: [
 
@@ -2711,6 +3010,7 @@ function AddVisitModal({
 }) {
   var todayStr = new Date().toISOString().slice(0, 10);
   var [date, setDate] = useState(todayStr);
+  var [nextVisitDate, setNextVisitDate] = useState("");
   var [hospital, setHospital] = useState("");
   var [doctor, setDoctor] = useState("");
   var [note, setNote] = useState("");
@@ -2749,6 +3049,7 @@ function AddVisitModal({
   function save() {
     onSave({
       date,
+      nextVisitDate: nextVisitDate || null,
       hospital,
       doctor,
       note,
@@ -2780,6 +3081,16 @@ function AddVisitModal({
             type: "date",
             value: date,
             onChange: e => setDate(e.target.value)
+          })]
+        }), (0, _jsxRuntime.jsxs)("div", {
+          className: "field",
+          children: [(0, _jsxRuntime.jsx)("label", {
+            children: "\u4E0B\u6B21\u56DE\u8A3A\u65E5\u671F\uFF08\u9078\u586B\uFF09"
+          }), (0, _jsxRuntime.jsx)("input", {
+            type: "date",
+            value: nextVisitDate,
+            min: todayStr,
+            onChange: e => setNextVisitDate(e.target.value)
           })]
         }), (0, _jsxRuntime.jsxs)("div", {
           className: "field",
