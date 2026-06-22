@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v10 start');
+console.log('[PairCare] v10.4 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -2296,16 +2296,6 @@ function DashboardPage({
         className: "main",
         children: [
 
-          // ── Top status summary line ───────────────────────────────────────
-          (0, _jsxRuntime.jsx)("div", {
-            style: {
-              fontSize: "0.82rem", color: "var(--ink-light)", lineHeight: 1.7,
-              background: "var(--cream)", borderRadius: 12, padding: "12px 14px",
-              marginBottom: 16,
-            },
-            children: summaryParts.join(" · ")
-          }),
-
           // ── ① Next dose card ───────────────────────────────────────────────
           (0, _jsxRuntime.jsx)("div", {
             className: "dash-card",
@@ -2330,58 +2320,7 @@ function DashboardPage({
                 ]})
           }),
 
-          // ── ② Next visit countdown card ───────────────────────────────────
-          (0, _jsxRuntime.jsx)("div", {
-            className: "dash-card",
-            onClick: function(){ setTab("visits"); },
-            style: {
-              background: visitState === "alert" ? "#FDEEEE" : visitState === "reminder" ? "var(--amber-pale)" : "white",
-              borderRadius: 14,
-              border: "1.5px solid " + (visitState === "alert" ? "#E8B4B4" : visitState === "reminder" ? "#DFC070" : "var(--border)"),
-              padding: "16px 18px", marginBottom: 12, cursor: "pointer",
-            },
-            children: nextVisit
-              ? (0, _jsxRuntime.jsxs)("div", { children: [
-                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:6,fontWeight:600}, children:"下次回診" }),
-                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1.05rem",fontWeight:600,color:"var(--ink)"}, children: formatVisitDate(nextVisit.nextVisitDate) }),
-                  (0, _jsxRuntime.jsxs)("div", { style:{marginTop:4,fontSize:"0.95rem",color: visitState==="alert"?"#C0392B":visitState==="reminder"?"var(--amber)":"var(--sage-dark)"}, children:[
-                    "還有 ", visitDaysLeft, " 天",
-                    visitState === "alert" && " ⚠ 即將回診",
-                    visitState === "reminder" && " 🔔 請留意安排",
-                  ]}),
-                ]})
-              : (0, _jsxRuntime.jsxs)("div", { children: [
-                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:6,fontWeight:600}, children:"下次回診" }),
-                  (0, _jsxRuntime.jsx)("p", { style:{fontSize:"0.85rem",color:"var(--ink-muted)"}, children:"尚未設定下次回診日期" }),
-                  !isViewer && (0, _jsxRuntime.jsx)("button", {
-                    className: "btn btn-secondary btn-sm", style:{marginTop:8},
-                    onClick: function(e){ e.stopPropagation(); setModal("addVisit"); },
-                    children: "設定回診日期"
-                  }),
-                ]})
-          }),
-
-          // ── ③ Stock status card ───────────────────────────────────────────
-          (0, _jsxRuntime.jsx)("div", {
-            className: "dash-card",
-            onClick: function(){ setModal("refillCenter"); },
-            style: { background:"white", borderRadius:14, border:"1.5px solid var(--border)", padding:"16px 18px", marginBottom:12, cursor:"pointer" },
-            children: (0, _jsxRuntime.jsxs)("div", { children: [
-              (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:8,fontWeight:600}, children:"庫存狀態" }),
-              (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",gap:20}, children: [
-                (0, _jsxRuntime.jsxs)("div", { children:[
-                  (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"1.3rem",fontWeight:600,color:"var(--sage-dark)"}, children:[stockNormal] }),
-                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.74rem",color:"var(--ink-muted)"}, children:"正常" }),
-                ]}),
-                (0, _jsxRuntime.jsxs)("div", { children:[
-                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1.3rem",fontWeight:600,color: stockLow>0 ? "#D9534F" : "var(--ink-muted)"}, children: stockLow }),
-                  (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.74rem",color:"var(--ink-muted)"}, children:"即將不足" }),
-                ]}),
-              ]}),
-            ]})
-          }),
-
-          // ── ④ Today's completion (circular progress) ─────────────────────
+          // ── Today's completion (circular progress) ─────────────────────
           totalGroups > 0 && (0, _jsxRuntime.jsx)("div", {
             className: "dash-card",
             style: { background:"white", borderRadius:14, border:"1.5px solid var(--border)", padding:"16px 18px", marginBottom:20 },
@@ -3275,6 +3214,7 @@ function AddVisitModal({
               children: "\u670D\u7528\u6642\u6BB5"
             }), (0, _jsxRuntime.jsx)(PeriodSelector, {
               selected: nm.schedules || [],
+              periodTimes: periodTimes || {},
               onChange: scheds => updateNewMed(nm._key, {
                 schedules: scheds
               })
@@ -3500,23 +3440,37 @@ function SettingsModal({
           }),
           (0, _jsxRuntime.jsx)("div", { className:"period-time-grid",
             children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
-              var pt2 = (state.settings && state.settings.periodTimes) || {};
-              var curT = pt2[p.id] || p.defaultTime;
-              return (0, _jsxRuntime.jsxs)("div", { className:"period-time-row", children:[
+              var pt2 = (state.settings && state.settings.periodTimes && typeof state.settings.periodTimes === "object")
+                ? state.settings.periodTimes : {};
+              var curT = pt2[p.id] || p.defaultTime || "08:00";
+              return (0, _jsxRuntime.jsxs)("div", { className:"period-time-row", key:p.id, children:[
                 (0, _jsxRuntime.jsx)("span", { className:"period-time-icon", children:p.icon }),
                 (0, _jsxRuntime.jsx)("span", { className:"period-time-label", children:p.label }),
                 (0, _jsxRuntime.jsx)("input", {
-                  type:"time", value:curT,
-                  style:{width:100,marginTop:0,padding:"6px 10px",fontSize:"0.85rem"},
+                  type:"time",
+                  value: curT,
+                  defaultValue: curT,
+                  style:{width:110,marginTop:0,padding:"6px 10px",fontSize:"0.85rem"},
                   onChange: function(e){
-                    var v=e.target.value;
+                    var v = e.target.value;
+                    if (!v) return;
                     update(function(s){
-                      if(!s.settings.periodTimes) s.settings.periodTimes={};
-                      s.settings.periodTimes[p.id]=v;
+                      if (!s.settings) s.settings = {};
+                      if (!s.settings.periodTimes || typeof s.settings.periodTimes !== "object") s.settings.periodTimes = {};
+                      s.settings.periodTimes[p.id] = v;
+                    });
+                  },
+                  onBlur: function(e){
+                    var v = e.target.value;
+                    if (!v) return;
+                    update(function(s){
+                      if (!s.settings) s.settings = {};
+                      if (!s.settings.periodTimes || typeof s.settings.periodTimes !== "object") s.settings.periodTimes = {};
+                      s.settings.periodTimes[p.id] = v;
                     });
                   }
                 }),
-              ]}, p.id);
+              ]});
             })
           }),
 
