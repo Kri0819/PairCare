@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v10.4 start');
+console.log('[PairCare] v10.5 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -300,7 +300,9 @@ function sanitizeState(s) {
   var rawPair = s.pair && typeof s.pair === "object" ? s.pair : null;
   return {
     user: rawUser ? {
-      id:     rawUser.id     || uid(),
+      // Preserve the real Supabase id if present — only fall back to a
+      // random id for genuinely fresh/local-only profiles.
+      id:     (typeof rawUser.id === "string" && rawUser.id.length > 0) ? rawUser.id : uid(),
       email:  rawUser.email  || "",
       name:   String(rawUser.name  || ""),
       role:   ["patient","supporter"].includes(rawUser.role) ? rawUser.role : null,
@@ -506,12 +508,20 @@ body {
 /* ── Form elements ── */
 input[type="text"], input[type="number"], input[type="time"],
 input[type="date"], textarea, select {
-  width: 100%; padding: 11px 14px;
+  width: 100%; max-width: 100%; min-width: 0; padding: 11px 14px;
   border: 1.5px solid var(--border); border-radius: var(--radius-sm);
   font-family: 'Noto Serif TC', serif; font-size: 0.92rem;
   color: var(--ink); background: var(--cream);
   outline: none; transition: border-color 0.18s, background 0.18s;
-  margin-top: 5px; display: block;
+  margin-top: 5px; display: block; box-sizing: border-box;
+}
+/* iOS Safari date input internals can overflow their container —
+   force the inner fields to shrink instead of pushing width out */
+input[type="date"] {
+  -webkit-appearance: none; appearance: none;
+}
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left; min-width: 0;
 }
 input:focus, textarea:focus, select:focus {
   border-color: var(--rose); background: white;
@@ -773,6 +783,7 @@ label {
 .modal-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 0 24px;
@@ -1236,12 +1247,24 @@ window.App = function App() {
         setState(function(prev) {
           var next = JSON.parse(JSON.stringify(prev));
           var saved = loadSavedUser();
-          if (!next.user || next.user.id !== session.user.id) {
-            next.user = buildUser(session.user, saved);
-          } else {
-            // Keep existing profile, just update auth fields
+          // Match by email (stable) rather than id, since localStorage may
+          // briefly have a placeholder id before Supabase resolves.
+          var sameAccount = next.user && (
+            next.user.email === session.user.email || next.user.id === session.user.id
+          );
+          if (sameAccount) {
+            // Already have a profile for this account — just sync auth fields,
+            // NEVER clear name/role/pairId that the user already set.
             next.user.id    = session.user.id;
             next.user.email = session.user.email || "";
+          } else if (next.user && !next.user.email && (saved && saved.email === session.user.email)) {
+            // Edge case: state.user exists but has no email yet (first hydration)
+            next.user = Object.assign({}, saved, { id: session.user.id, email: session.user.email || "" });
+          } else if (!next.user) {
+            // Truly no profile yet — try localStorage backup first, then build fresh
+            next.user = saved && saved.email === session.user.email
+              ? Object.assign({}, saved, { id: session.user.id, email: session.user.email || "" })
+              : buildUser(session.user, saved);
           }
           return next;
         });
@@ -1263,11 +1286,18 @@ window.App = function App() {
         setState(function(prev) {
           var next = JSON.parse(JSON.stringify(prev));
           var saved = loadSavedUser();
-          if (!next.user || next.user.id !== session.user.id) {
-            next.user = buildUser(session.user, saved);
-          } else {
+          var sameAccount = next.user && (
+            next.user.email === session.user.email || next.user.id === session.user.id
+          );
+          if (sameAccount) {
             next.user.id    = session.user.id;
             next.user.email = session.user.email || "";
+          } else if (next.user && !next.user.email && (saved && saved.email === session.user.email)) {
+            next.user = Object.assign({}, saved, { id: session.user.id, email: session.user.email || "" });
+          } else if (!next.user) {
+            next.user = saved && saved.email === session.user.email
+              ? Object.assign({}, saved, { id: session.user.id, email: session.user.email || "" })
+              : buildUser(session.user, saved);
           }
           return next;
         });
@@ -2010,11 +2040,11 @@ function RefillCenterModal({ state, update, isViewer, onClose, showToast }) {
                 est && (" · 約可服用 " + est.days + " 天"),
                 est && (" · 預計 " + est.date + " 吃完"),
               ]}),
-              !isViewer && (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",alignItems:"center",gap:8}, children: [
+              !isViewer && (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",alignItems:"center",gap:8,minWidth:0,width:"100%"}, children: [
                 (0, _jsxRuntime.jsx)("input", {
                   type:"number", min:1, placeholder:"補充顆數",
                   value: refillInputs[med.id] || "",
-                  style:{flex:1,marginTop:0,padding:"8px 10px",fontSize:"0.85rem"},
+                  style:{flex:"1 1 auto",minWidth:0,width:"auto",marginTop:0,padding:"8px 10px",fontSize:"0.85rem",boxSizing:"border-box"},
                   onChange: function(e) {
                     var v = e.target.value;
                     setRefillInputs(function(prev) {
@@ -2025,7 +2055,7 @@ function RefillCenterModal({ state, update, isViewer, onClose, showToast }) {
                   }
                 }),
                 (0, _jsxRuntime.jsx)("button", {
-                  className: "btn btn-secondary btn-sm", style:{marginTop:0,flexShrink:0},
+                  className: "btn btn-secondary btn-sm", style:{marginTop:0,flexShrink:0,whiteSpace:"nowrap"},
                   onClick: function(){ markRefilled(med); },
                   children: "已補藥"
                 }),
