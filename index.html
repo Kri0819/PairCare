@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.2 start');
+console.log('[PairCare] v11.3 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -698,31 +698,26 @@ label {
 .period-slot-status.late    { background: var(--amber-pale); color: var(--amber); }
 .period-slot-status.pending { background: var(--cream); color: var(--ink-muted); }
 
-.period-meds { padding: 4px 16px 12px; }
+.period-meds { padding: 4px 16px 14px; }
 .period-med-row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 0;
+  padding: 8px 0; gap: 12px;
 }
 .period-med-row + .period-med-row { border-top: 1px solid rgba(35,28,16,0.06); }
 .period-med-name { font-size: 0.9rem; font-weight: 500; color: var(--ink); }
 .period-med-dose { font-family: 'DM Mono', monospace; font-size: 0.76rem; color: var(--ink-muted); }
-.period-med-check { font-size: 0.95rem; }
+.period-med-check { font-size: 0.95rem; flex-shrink: 0; white-space: nowrap; }
 
 .period-footer {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px; background: var(--cream);
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 10px 16px 14px;
 }
-.period-footer.done  { background: rgba(106,148,120,0.12); }
-.period-footer.late  { background: var(--amber-pale); }
-
-.period-footer-label { font-size: 0.8rem; color: var(--ink-muted); }
-.period-footer.done .period-footer-label { color: var(--sage-dark); font-weight: 500; }
-.period-footer.late .period-footer-label { color: var(--amber); font-weight: 500; }
+.period-footer.done  { background: transparent; }
 
 .btn-take-period {
-  padding: 9px 20px; border-radius: 999px;
+  padding: 7px 18px; border-radius: 999px; flex-shrink: 0;
   background: var(--rose); color: white; border: none;
-  font-family: 'Noto Serif TC', serif; font-size: 0.85rem; font-weight: 600;
+  font-family: 'Noto Serif TC', serif; font-size: 0.8rem; font-weight: 600;
   cursor: pointer; transition: background 0.15s; box-shadow: 0 3px 10px rgba(196,120,90,0.3);
 }
 .btn-take-period:active { background: var(--rose-dark); }
@@ -2491,28 +2486,29 @@ function DashboardPage({
                   (0, _jsxRuntime.jsx)("div", { className:"period-meds", children:
                     group.meds.map(function(item) {
                       var log = safeLog[item.key];
+                      var taken = log && (log.takenAt || log.displayTime);
                       return (0, _jsxRuntime.jsxs)("div", { className:"period-med-row", key:item.key, children: [
                         (0, _jsxRuntime.jsxs)("div", { children: [
                           (0, _jsxRuntime.jsx)("div", { className:"period-med-name", children: item.med.name }),
                           (0, _jsxRuntime.jsxs)("div", { className:"period-med-dose", children: [item.sched.dose, " 顆"] }),
                         ]}),
-                        (0, _jsxRuntime.jsx)("div", { className:"period-med-check",
-                          children: log && (log.takenAt || log.displayTime)
-                            ? ("✅ " + (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : "")))
-                            : "○"
-                        }),
+                        taken
+                          ? (0, _jsxRuntime.jsx)("div", { className:"period-med-check",
+                              children: "✅ " + (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : ""))
+                            })
+                          : isViewer
+                            ? (0, _jsxRuntime.jsx)("div", { className:"period-med-check", children: "○" })
+                            : (0, _jsxRuntime.jsx)("button", {
+                                className: "btn-take-period",
+                                onClick: function(){ markPeriodTaken(group); },
+                                children: "已服用"
+                              }),
                       ]});
                     })
                   }),
-                  (0, _jsxRuntime.jsxs)("div", { className: "period-footer" + (allDone ? " done" : isLate ? " late" : ""), children: [
-                    (0, _jsxRuntime.jsx)("div", { className:"period-footer-label",
-                      children: allDone ? ("✓ 已服藥 " + (firstDisplayTime || "")) : isLate ? ("⚠ 已超過 " + (nowMins - tMins2) + " 分鐘") : isNow ? "⏰ 現在服藥時間" : ""
-                    }),
-                    !isViewer && (allDone
-                      ? (0, _jsxRuntime.jsx)("button", { className:"btn-undo", onClick: function(){ undoPeriod(group); }, children:"撤銷" })
-                      : (0, _jsxRuntime.jsx)("button", { className:"btn-take-period", onClick: function(){ markPeriodTaken(group); }, children:"已服用" })
-                    ),
-                  ]}),
+                  allDone && !isViewer && (0, _jsxRuntime.jsx)("div", { className: "period-footer done", children:
+                    (0, _jsxRuntime.jsx)("button", { className:"btn-undo", onClick: function(){ undoPeriod(group); }, children:"撤銷" })
+                  }),
                 ]}),
               ]
             });
