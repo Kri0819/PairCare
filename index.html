@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.3 start');
+console.log('[PairCare] v11.4 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -2851,15 +2851,19 @@ function LogPage({
     expectedPerDay += (med.schedules || []).length;
   });
 
-  // ── Build last 7 days of stats ────────────────────────────────────────────
-  function dateNDaysAgo(n) {
-    var d = new Date();
-    d.setDate(d.getDate() - n);
+  // ── Build this week's days (Sunday → Saturday) ──────────────────────────
+  function dateOffset(base, n) {
+    var d = new Date(base);
+    d.setDate(d.getDate() + n);
     return d.toISOString().slice(0, 10);
   }
+  var now = new Date();
+  var todayDow = now.getDay(); // 0 = Sunday
+  var weekStart = dateOffset(now, -todayDow); // this week's Sunday
+
   var days = [];
   for (var i = 0; i < 7; i++) {
-    var dateStr = dateNDaysAgo(i);
+    var dateStr = dateOffset(weekStart, i);
     var doneCount = 0;
     Object.keys(safeLog).forEach(function(key) {
       if (key.indexOf(dateStr + "|") === 0) {
