@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.1 start');
+console.log('[PairCare] v11.2 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -590,6 +590,13 @@ label {
 /* ── Main ── */
 .main { flex: 1; overflow-y: auto; padding: 8px 18px 18px; padding-bottom: 96px; }
 
+/* ── Stock summary line (one-line, above hero card) ── */
+.stock-summary-line {
+  font-size: 0.78rem; color: var(--ink-muted);
+  padding: 0 4px 10px; cursor: pointer;
+}
+.stock-summary-line.warn { color: var(--rose-dark); font-weight: 500; }
+
 /* ════════════════════════════════════════════════════════════════════════
    HERO CARD — the visual anchor of the home page ("next dose")
    ════════════════════════════════════════════════════════════════════════ */
@@ -730,7 +737,6 @@ label {
 /* ════════════════════════════════════════════════════════════════════════
    SMALL INFO CARDS — visit countdown + stock, secondary on home page
    ════════════════════════════════════════════════════════════════════════ */
-.mini-card-row { display: flex; gap: 10px; margin-top: 18px; }
 .mini-card {
   flex: 1; background: white; border-radius: var(--radius);
   border: 1.5px solid var(--border); padding: 14px 15px;
@@ -2377,29 +2383,19 @@ function DashboardPage({
     nextDoseInfo = { group: nextDoseGroup, medNames: medNames, isDue: isDue, countdownStr: countdownStr };
   }
 
-  // ── Next visit countdown (mini card) ──────────────────────────────────────
-  var upcomingVisits = safeVisits
-    .filter(function(v) { return v && v.nextVisitDate; })
-    .sort(function(a,b){ return new Date(a.nextVisitDate) - new Date(b.nextVisitDate); });
-  var todayStr = new Date().toISOString().slice(0,10);
-  var nextVisit = upcomingVisits.find(function(v){ return v.nextVisitDate >= todayStr; }) || upcomingVisits[upcomingVisits.length-1];
-  var visitDaysLeft = null;
-  var visitState = "normal";
-  if (nextVisit) {
-    var d1 = new Date(todayStr), d2 = new Date(nextVisit.nextVisitDate);
-    visitDaysLeft = Math.round((d2 - d1) / 86400000);
-    if (visitDaysLeft <= 3) visitState = "alert";
-    else if (visitDaysLeft <= 7) visitState = "reminder";
-  }
 
-  // ── Stock status (mini card) ──────────────────────────────────────────────
+  // ── Stock status (one-line summary above hero card) ──────────────────────
   var stockNormal = 0, stockLow = 0;
+  var lowStockNames = [];
   activeMeds.forEach(function(med) {
     var dailyDose = (med.schedules || []).reduce(function(s, sc){ return s + sc.dose; }, 0);
     var est = estimateFinishDate(med.remainingCount, dailyDose);
-    if (est && est.days <= 7) stockLow++;
+    if (est && est.days <= 7) { stockLow++; lowStockNames.push(med.name); }
     else stockNormal++;
   });
+  var stockSummaryText = lowStockNames.length > 0
+    ? "庫存提醒：" + lowStockNames.join("、") + " 數量不足"
+    : "庫存提醒：藥物充足";
 
   function askNotifFromHero() {} // placeholder, not used here
 
@@ -2425,6 +2421,13 @@ function DashboardPage({
       (0, _jsxRuntime.jsxs)("div", {
         className: "main",
         children: [
+
+          // ── Stock summary line (above hero card) ──────────────────────────
+          (0, _jsxRuntime.jsx)("div", {
+            className: "stock-summary-line" + (stockLow > 0 ? " warn" : ""),
+            onClick: function(){ setModal("refillCenter"); },
+            children: stockSummaryText
+          }),
 
           // ════════════════════════════════════════════════════════════════
           // HERO CARD — the dominant visual element: "what's next"
@@ -2514,34 +2517,6 @@ function DashboardPage({
               ]
             });
           }),
-
-          // ════════════════════════════════════════════════════════════════
-          // SMALL INFO CARDS — visit countdown + stock, secondary priority
-          // ════════════════════════════════════════════════════════════════
-          (0, _jsxRuntime.jsxs)("div", { className: "mini-card-row", children: [
-            (0, _jsxRuntime.jsxs)("div", {
-              className: "mini-card" + (visitState === "alert" ? " alert" : visitState === "reminder" ? " reminder" : ""),
-              onClick: function(){ setTab("visits"); },
-              children: [
-                (0, _jsxRuntime.jsx)("div", { className: "mini-label", children: "📅 回診倒數" }),
-                nextVisit
-                  ? (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, { children: [
-                      (0, _jsxRuntime.jsxs)("div", { className: "mini-value", children: [visitDaysLeft, " 天"] }),
-                      (0, _jsxRuntime.jsx)("div", { className: "mini-sub", children: nextVisit.nextVisitDate }),
-                    ]})
-                  : (0, _jsxRuntime.jsx)("div", { className: "mini-sub", children: "尚未設定" }),
-              ]
-            }),
-            (0, _jsxRuntime.jsxs)("div", {
-              className: "mini-card",
-              onClick: function(){ setModal("refillCenter"); },
-              children: [
-                (0, _jsxRuntime.jsx)("div", { className: "mini-label", children: "💊 庫存提醒" }),
-                (0, _jsxRuntime.jsxs)("div", { className: "mini-value", children: [stockLow, " 種藥物不足"] }),
-                (0, _jsxRuntime.jsxs)("div", { className: "mini-sub", children: ["正常 ", stockNormal, " 種"] }),
-              ]
-            }),
-          ]}),
 
         ]
       })
