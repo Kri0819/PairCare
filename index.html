@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.5 start');
+console.log('[PairCare] v11.6 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -590,10 +590,10 @@ label {
 /* ── Main ── */
 .main { flex: 1; overflow-y: auto; padding: 8px 18px 18px; padding-bottom: 96px; }
 
-/* ── Stock summary line (one-line, above hero card) ── */
+/* ── Stock summary line (one-line, bottom of home page) ── */
 .stock-summary-line {
   font-size: 0.78rem; color: var(--ink-muted);
-  padding: 0 4px 10px; cursor: pointer;
+  padding: 18px 4px 10px; cursor: pointer; text-align: center;
 }
 .stock-summary-line.warn { color: var(--rose-dark); font-weight: 500; }
 
@@ -2466,7 +2466,7 @@ function DashboardPage({
   }
 
 
-  // ── Stock status (one-line summary above hero card) ──────────────────────
+  // ── Stock status (one-line summary, shown at bottom of home page) ──────────
   var stockNormal = 0, stockLow = 0;
   var lowStockNames = [];
   activeMeds.forEach(function(med) {
@@ -2503,13 +2503,6 @@ function DashboardPage({
       (0, _jsxRuntime.jsxs)("div", {
         className: "main",
         children: [
-
-          // ── Stock summary line (above hero card) ──────────────────────────
-          (0, _jsxRuntime.jsx)("div", {
-            className: "stock-summary-line" + (stockLow > 0 ? " warn" : ""),
-            onClick: function(){ setModal("refillCenter"); },
-            children: stockSummaryText
-          }),
 
           // ════════════════════════════════════════════════════════════════
           // HERO CARD — the dominant visual element: "what's next"
@@ -2599,6 +2592,13 @@ function DashboardPage({
                 ]}),
               ]
             });
+          }),
+
+          // ── Stock summary line (bottom of home page, after time-slot cards) ──
+          (0, _jsxRuntime.jsx)("div", {
+            className: "stock-summary-line" + (stockLow > 0 ? " warn" : ""),
+            onClick: function(){ setModal("refillCenter"); },
+            children: stockSummaryText
           }),
 
         ]
