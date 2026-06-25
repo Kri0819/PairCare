@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.4 start');
+console.log('[PairCare] v11.5 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -985,6 +985,25 @@ label {
 .notif-banner button { background: var(--sage); color: white; border: none; border-radius: 999px; padding: 7px 16px; font-size: 0.78rem; font-weight: 500; cursor: pointer; font-family: 'Noto Serif TC', serif; }
 
 .section-title { font-size: 0.74rem; font-weight: 600; color: var(--ink-muted); letter-spacing: 0.12em; text-transform: uppercase; margin: 22px 0 10px; font-family: 'DM Mono', monospace; }
+
+/* ── List tab switcher (服用中 / 已停藥) ── */
+.list-tab-row {
+  display: flex; gap: 8px; margin: 4px 0 16px;
+  background: var(--cream); border-radius: 999px; padding: 4px;
+}
+.list-tab {
+  flex: 1; padding: 9px 0; border-radius: 999px; border: none;
+  background: transparent; color: var(--ink-muted);
+  font-family: 'Noto Serif TC', serif; font-size: 0.85rem; font-weight: 500;
+  cursor: pointer; transition: all 0.18s; display: flex; align-items: center;
+  justify-content: center; gap: 6px;
+}
+.list-tab.active { background: white; color: var(--rose-dark); box-shadow: var(--shadow-sm); font-weight: 600; }
+.list-tab-count {
+  font-family: 'DM Mono', monospace; font-size: 0.72rem;
+  background: rgba(0,0,0,0.06); padding: 1px 7px; border-radius: 10px;
+}
+.list-tab.active .list-tab-count { background: var(--rose-pale); color: var(--rose-dark); }
 .section-tip { font-size: 0.78rem; color: var(--ink-muted); margin-bottom: 16px; line-height: 1.55; }
 
 .empty-state { text-align: center; padding: 52px 20px; color: var(--ink-muted); }
@@ -1256,6 +1275,10 @@ window.App = function App() {
   var _detailMed = useState(null);
   var detailMed    = _detailMed[0];
   var setDetailMed = _detailMed[1];
+
+  var _refillMed = useState(null);
+  var refillMed    = _refillMed[0];
+  var setRefillMed = _refillMed[1];
 
   var _toast = useState(null);
   var toast    = _toast[0];
@@ -1688,7 +1711,7 @@ window.App = function App() {
 
     _jsxRuntime.jsxs("div", { style: { flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }, children: [
       tab === "today"  && _jsxRuntime.jsx(DashboardPage, { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, now:now, setTab:setTab }),
-      tab === "meds"   && _jsxRuntime.jsx(MedsPage,   { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, setDetailMed:setDetailMed }),
+      tab === "meds"   && _jsxRuntime.jsx(MedsPage,   { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, setDetailMed:setDetailMed, setRefillMed:setRefillMed }),
       tab === "visits" && _jsxRuntime.jsx(VisitsPage, { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal }),
       tab === "log"    && _jsxRuntime.jsx(LogPage,    { state:state, isViewer:isSupporter, logicalDate:logicalDate }),
     ]}),
@@ -1763,6 +1786,10 @@ window.App = function App() {
     detailMed && _jsxRuntime.jsx(MedDetailModal, {
       med: detailMed, state: state, update: update, isViewer: isSupporter,
       onClose: function(){ setDetailMed(null); }, showToast: showToast
+    }),
+    refillMed && !isSupporter && _jsxRuntime.jsx(QuickRefillModal, {
+      med: refillMed, update: update,
+      onClose: function(){ setRefillMed(null); }, showToast: showToast
     }),
     modal === "settings" && _jsxRuntime.jsx(SettingsModal, {
       state: state, update: update,
@@ -2078,6 +2105,66 @@ function PairSetupFlow(props) {
 // ── 11. PROFILE MODAL V8 ──────────────────────────────────────────────────────
 // ─── Refill Center Modal ──────────────────────────────────────────────────────
 // Shows estimated days remaining per medication, with manual "已補藥" action
+// ─── Quick Refill Modal (single medication, opened from MedCard) ────────────
+function QuickRefillModal({ med, update, onClose, showToast }) {
+  var _amt = useState("");
+  var amount    = _amt[0];
+  var setAmount = _amt[1];
+
+  var dailyDose = (med.schedules || []).reduce(function(s, sc){ return s + sc.dose; }, 0);
+  var est = estimateFinishDate(med.remainingCount, dailyDose);
+
+  function confirm() {
+    var n = Number(amount);
+    if (!n || n <= 0) { showToast("請輸入補充顆數"); return; }
+    update(function(s) {
+      var m = s.medications.find(function(mm){ return mm.id === med.id; });
+      if (m) {
+        m.remainingCount = (m.remainingCount || 0) + n;
+        m.totalCount = Math.max(m.totalCount || 0, m.remainingCount);
+      }
+    });
+    showToast("✓ 已記錄補藥 +" + n + " 顆");
+    onClose();
+  }
+
+  return (0, _jsxRuntime.jsx)("div", {
+    className: "modal-overlay",
+    onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
+    children: (0, _jsxRuntime.jsxs)("div", { className: "modal", children: [
+      (0, _jsxRuntime.jsxs)("div", { className: "modal-top", children: [
+        (0, _jsxRuntime.jsx)("div", { className: "modal-handle" }),
+        (0, _jsxRuntime.jsx)("h3", { children: "補藥" }),
+      ]}),
+      (0, _jsxRuntime.jsxs)("div", { className: "modal-scroll", children: [
+        (0, _jsxRuntime.jsxs)("div", { style:{ textAlign:"center", marginBottom:20 }, children: [
+          (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1.05rem",fontWeight:600,color:"var(--ink)"}, children: med.name }),
+          (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"0.82rem",color:"var(--ink-muted)",marginTop:4}, children: [
+            "目前剩餘 ", med.remainingCount, " 顆",
+            est && (" · 約可服用 " + est.days + " 天")
+          ]}),
+        ]}),
+        (0, _jsxRuntime.jsxs)("div", { className: "field", children: [
+          (0, _jsxRuntime.jsx)("label", { children: "這次補充幾顆？" }),
+          (0, _jsxRuntime.jsx)("input", {
+            type: "number", min: 1, autoFocus: true,
+            value: amount, placeholder: "例：30",
+            style: { textAlign:"center", fontSize:"1.3rem" },
+            onChange: function(e){ setAmount(e.target.value); },
+            onKeyDown: function(e){ if (e.key === "Enter") confirm(); }
+          }),
+        ]}),
+        amount && Number(amount) > 0 && (0, _jsxRuntime.jsxs)("p", {
+          style:{ fontSize:"0.8rem", color:"var(--sage-dark)", textAlign:"center", marginTop:-8, marginBottom:16 },
+          children: ["→ 補充後共剩 ", med.remainingCount + Number(amount), " 顆"]
+        }),
+        (0, _jsxRuntime.jsx)("button", { className:"btn btn-primary", onClick:confirm, children:"確認補藥" }),
+        (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:8,width:"100%"}, onClick:onClose, children:"取消" }),
+      ]}),
+    ]})
+  });
+}
+
 function RefillCenterModal({ state, update, isViewer, onClose, showToast }) {
   var safeMeds = Array.isArray(state.medications) ? state.medications : [];
   var activeMeds = safeMeds.filter(function(m) { return m && m.status === "active"; });
@@ -2649,12 +2736,21 @@ function MedsPage({
   showToast,
   setModal,
   logicalDate,
-  setDetailMed
+  setDetailMed,
+  setRefillMed
 }) {
   var active = (Array.isArray(state.medications) ? state.medications : []).filter(function(m){ return m.status === "active"; });
   var paused = (Array.isArray(state.medications) ? state.medications : []).filter(function(m){ return m.status === "paused"; });
+
+  var _listTab = useState("active");
+  var listTab    = _listTab[0];
+  var setListTab = _listTab[1];
+
   function openDetail(med) {
     if (setDetailMed) setDetailMed(med);
+  }
+  function openRefill(med) {
+    if (setRefillMed) setRefillMed(med);
   }
   function toggle(id) {
     if (isViewer) return;
@@ -2664,26 +2760,17 @@ function MedsPage({
     });
     showToast("狀態已更新");
   }
+
+  var shownMeds = listTab === "active" ? active : paused;
+
   return (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, {
     children: [(0, _jsxRuntime.jsx)("div", {
       className: "header",
-      children: (0, _jsxRuntime.jsxs)("div", {
+      children: (0, _jsxRuntime.jsx)("div", {
         className: "header-row",
-        children: [(0, _jsxRuntime.jsx)("h2", {
+        children: (0, _jsxRuntime.jsx)("h2", {
           children: "\u85E5\u7269\u6E05\u55AE"
-        }), (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",gap:8}, children: [
-          (0, _jsxRuntime.jsx)("button", {
-            className: "btn-icon",
-            onClick: function(){ setModal("refillCenter"); },
-            title: "補藥中心",
-            children: "💊"
-          }),
-          !isViewer && (0, _jsxRuntime.jsx)("button", {
-            className: "btn-icon",
-            onClick: () => setModal("addMed"),
-            children: Ico.plus
-          })
-        ]})]
+        })
       })
     }), (0, _jsxRuntime.jsx)("div", {
       className: "main",
@@ -2704,27 +2791,31 @@ function MedsPage({
           children: "\u65B0\u589E\u85E5\u7269"
         })]
       }) : (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, {
-        children: [active.length > 0 && (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, {
-          children: [(0, _jsxRuntime.jsx)("div", {
-            className: "section-title",
-            children: "\u670D\u7528\u4E2D"
-          }), active.map(m => (0, _jsxRuntime.jsx)(MedCard, {
-            med: m,
-            isViewer: isViewer,
-            onToggle: toggle,
-            onOpenDetail: openDetail
-          }, m.id))]
-        }), paused.length > 0 && (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, {
-          children: [(0, _jsxRuntime.jsx)("div", {
-            className: "section-title",
-            children: "\u5DF2\u505C\u85E5"
-          }), paused.map(m => (0, _jsxRuntime.jsx)(MedCard, {
-            med: m,
-            isViewer: isViewer,
-            onToggle: toggle,
-            onOpenDetail: openDetail
-          }, m.id))]
-        })]
+        children: [
+          (0, _jsxRuntime.jsxs)("div", { className: "list-tab-row", children: [
+            (0, _jsxRuntime.jsxs)("button", {
+              className: "list-tab" + (listTab === "active" ? " active" : ""),
+              onClick: function(){ setListTab("active"); },
+              children: ["服用中", " ", (0, _jsxRuntime.jsx)("span", { className:"list-tab-count", children: active.length })]
+            }),
+            (0, _jsxRuntime.jsxs)("button", {
+              className: "list-tab" + (listTab === "paused" ? " active" : ""),
+              onClick: function(){ setListTab("paused"); },
+              children: ["已停藥", " ", (0, _jsxRuntime.jsx)("span", { className:"list-tab-count", children: paused.length })]
+            }),
+          ]}),
+          shownMeds.length === 0
+            ? (0, _jsxRuntime.jsx)("div", { className:"empty-state", style:{padding:"40px 20px"}, children:
+                (0, _jsxRuntime.jsx)("p", { children: listTab === "active" ? "目前沒有服用中的藥物" : "目前沒有已停藥的藥物" })
+              })
+            : shownMeds.map(m => (0, _jsxRuntime.jsx)(MedCard, {
+                med: m,
+                isViewer: isViewer,
+                onToggle: toggle,
+                onOpenDetail: openDetail,
+                onRefill: openRefill
+              }, m.id))
+        ]
       })
     }), !isViewer && (0, _jsxRuntime.jsx)("button", {
       className: "fab",
@@ -2737,7 +2828,8 @@ function MedCard({
   med,
   isViewer,
   onToggle,
-  onOpenDetail
+  onOpenDetail,
+  onRefill
 }) {
   var pct = med.totalCount > 0 ? Math.round(med.remainingCount / med.totalCount * 100) : 0;
   var dailyDose = (med.schedules || []).reduce((s, sc) => s + sc.dose, 0);
@@ -2794,11 +2886,18 @@ function MedCard({
 
       !isViewer && (0, _jsxRuntime.jsx)("div", {
         className: "med-footer",
-        children: (0, _jsxRuntime.jsx)("button", {
-          className: "btn btn-sm btn-ghost",
-          onClick: (e) => { e.stopPropagation(); onToggle(med.id); },
-          children: med.status === "active" ? "暫停此藥" : "恢復服用"
-        })
+        children: [
+          med.status === "active" && (0, _jsxRuntime.jsx)("button", {
+            className: "btn btn-sm btn-ghost",
+            onClick: (e) => { e.stopPropagation(); if (onRefill) onRefill(med); },
+            children: "💊 補藥"
+          }),
+          (0, _jsxRuntime.jsx)("button", {
+            className: "btn btn-sm btn-ghost",
+            onClick: (e) => { e.stopPropagation(); onToggle(med.id); },
+            children: med.status === "active" ? "暫停此藥" : "恢復服用"
+          })
+        ]
       })
     ]
   });
