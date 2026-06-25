@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.7 start');
+console.log('[PairCare] v11.8 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -1107,6 +1107,18 @@ label {
 
 /* Settings */
 .settings-row { display: flex; align-items: center; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid rgba(35,28,16,0.06); }
+
+/* ── Collapsible section row (e.g. 服藥時段預設時間) ── */
+.collapsible-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: white; border-radius: 12px; border: 1.5px solid var(--border);
+  padding: 14px 16px; margin-bottom: 4px; cursor: pointer;
+}
+.collapsible-chevron {
+  font-size: 1.3rem; color: var(--ink-muted); transform: rotate(90deg);
+  transition: transform 0.2s; flex-shrink: 0;
+}
+.collapsible-chevron.open { transform: rotate(-90deg); }
 .settings-row:last-child { border-bottom: none; }
 .settings-label { font-size: 0.92rem; font-weight: 500; }
 .settings-sub { font-size: 0.75rem; color: var(--ink-muted); margin-top: 2px; }
@@ -1815,15 +1827,11 @@ window.App = function App() {
       med: detailMed, state: state, update: update, isViewer: isSupporter,
       onClose: function(){ setDetailMed(null); }, showToast: showToast
     }),
-    modal === "settings" && _jsxRuntime.jsx(SettingsModal, {
-      state: state, update: update,
-      onClose: function() { setModal(null); },
-      showToast: showToast, notifOk: notifOk, askNotif: askNotif
-    }),
-    modal === "profile" && _jsxRuntime.jsx(ProfileModalV8, {
+    modal === "account" && _jsxRuntime.jsx(AccountCenterModal, {
       state: state, update: update, pair: pair,
       onClose: function() { setModal(null); },
-      showToast: showToast, cleanLogout: cleanLogout
+      showToast: showToast, cleanLogout: cleanLogout,
+      notifOk: notifOk, askNotif: askNotif
     }),
   ]});
 };
@@ -2236,16 +2244,67 @@ function RefillCenterModal({ state, update, isViewer, onClose, showToast }) {
   });
 }
 
-function ProfileModalV8(props) {
+function AccountCenterModal(props) {
   var state       = props.state;
   var update      = props.update;
   var pair        = props.pair;
   var onClose     = props.onClose;
   var showToast   = props.showToast;
   var cleanLogout = props.cleanLogout;
+  var notifOk     = props.notifOk;
+  var askNotif    = props.askNotif;
 
   var u = state.user;
 
+  // ── Section 2 state/logic (notification + reminders + schedule defaults) ──
+  var hr = (state.settings && state.settings.dayResetHour) || 4;
+  var minutesBefore = (state.settings && Array.isArray(state.settings.reminderMinutesBefore))
+    ? state.settings.reminderMinutesBefore : [10];
+  var PRESET_MINS = [5, 10, 15, 20, 30];
+
+  // Collapsed by default — "服藥時段預設時間" only expands on tap
+  var _periodOpen = useState(false);
+  var periodOpen    = _periodOpen[0];
+  var setPeriodOpen = _periodOpen[1];
+
+  function toggleMinute(mins) {
+    update(function(s) {
+      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
+      if (cur.includes(mins)) {
+        s.settings.reminderMinutesBefore = cur.filter(function(m){ return m !== mins; });
+      } else {
+        s.settings.reminderMinutesBefore = cur.concat([mins]).sort(function(a,b){ return a-b; });
+      }
+    });
+  }
+  function addCustomMinute() {
+    var val = parseInt(window.prompt('提前幾分鐘提醒？（1-120）', ''), 10);
+    if (!val || val < 1 || val > 120) return;
+    update(function(s) {
+      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
+      if (!cur.includes(val)) {
+        s.settings.reminderMinutesBefore = cur.concat([val]).sort(function(a,b){ return a-b; });
+      }
+    });
+  }
+  function removeMinute(mins) {
+    update(function(s) {
+      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
+      s.settings.reminderMinutesBefore = cur.filter(function(m){ return m !== mins; });
+    });
+  }
+  function handleNotifToggle() {
+    if (notifOk) {
+      update(function(s) { s.settings.notifMuted = true; });
+      showToast('提醒已靜音。如需完全關閉請至瀏覽器設定。');
+    } else {
+      askNotif();
+    }
+  }
+  var notifMuted = state.settings && state.settings.notifMuted;
+  var notifActive = notifOk && !notifMuted;
+
+  // ── Section 1 logic (account + pair) ──────────────────────────────────────
   function copyCode() {
     var code = pair && pair.inviteCode;
     if (!code) return;
@@ -2253,11 +2312,11 @@ function ProfileModalV8(props) {
     catch(e) { showToast("邀請碼：" + code); }
   }
 
+  // ── Section 3 logic (logout / reset) ────────────────────────────────────────
   function doLogout() {
     cleanLogout();
     onClose();
   }
-
   function resetAll() {
     if (!window.confirm("⚠️ 確定清除所有資料？此操作無法還原。")) return;
     [STORAGE_KEY, STORAGE_KEY + "_user", "paircare_session", "peiYike_v3", "peiYike_v6"].forEach(function(k) {
@@ -2266,61 +2325,231 @@ function ProfileModalV8(props) {
     window.location.reload();
   }
 
-  return _jsxRuntime.jsxs("div", {
-    className: "modal-overlay",
-    onClick: function(e) { if (e.target === e.currentTarget) onClose(); },
-    children: [_jsxRuntime.jsxs("div", { className: "modal", children: [
-      _jsxRuntime.jsxs("div", { className: "modal-top", children: [
-        _jsxRuntime.jsx("div", { className: "modal-handle" }),
-        _jsxRuntime.jsx("h3", { children: "帳號 & 配對" }),
-      ]}),
-      _jsxRuntime.jsxs("div", { className: "modal-scroll", children: [
-        // User info
-        _jsxRuntime.jsxs("div", { className: "pair-info", children: [
-          _jsxRuntime.jsx("span", { children: "👤" }),
-          _jsxRuntime.jsxs("span", { children: [(u && u.name) || "", " · ", u && u.role === "patient" ? "吃藥者" : "陪同者"] }),
-        ]}),
-        // Email
-        u && u.email && _jsxRuntime.jsx("p", { style:{fontSize:"0.75rem",color:"var(--ink-muted)",marginBottom:12}, children: u.email }),
+  var labelStyle = {
+    fontSize:"0.75rem", fontWeight:600, color:"var(--ink-muted)",
+    letterSpacing:"0.12em", textTransform:"uppercase",
+    fontFamily:"'DM Mono',monospace", marginBottom:10
+  };
+  var cardStyle = {
+    background:"white", borderRadius:12,
+    border:"1.5px solid var(--border)", padding:"0 16px", marginBottom:12
+  };
 
-        // Pair card
-        pair && _jsxRuntime.jsxs("div", { style:{background:"var(--cream)",borderRadius:12,border:"1.5px solid var(--border)",padding:"14px 16px",marginBottom:14}, children: [
-          _jsxRuntime.jsxs("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}, children: [
-            _jsxRuntime.jsx("span", { style:{fontSize:"0.78rem",fontWeight:600,color:"var(--ink-light)",letterSpacing:"0.06em"}, children:"配對狀態" }),
-            _jsxRuntime.jsx("span", {
+  return (0, _jsxRuntime.jsx)("div", {
+    className: "modal-overlay",
+    onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
+    children: (0, _jsxRuntime.jsxs)("div", { className: "modal", children: [
+      (0, _jsxRuntime.jsxs)("div", { className: "modal-top", children: [
+        (0, _jsxRuntime.jsx)("div", { className: "modal-handle" }),
+        (0, _jsxRuntime.jsx)("h3", { children: "個人中心" }),
+      ]}),
+      (0, _jsxRuntime.jsxs)("div", { className: "modal-scroll", children: [
+
+        // ════════════════════════════════════════════════════════════════
+        // ① 帳號與配對
+        // ════════════════════════════════════════════════════════════════
+        (0, _jsxRuntime.jsxs)("div", { className: "pair-info", children: [
+          (0, _jsxRuntime.jsx)("span", { children: "👤" }),
+          (0, _jsxRuntime.jsxs)("span", { children: [
+            (u && u.name) || "", " · ", u && u.role === "patient" ? "吃藥者" : "陪同者"
+          ]}),
+        ]}),
+        u && u.email && (0, _jsxRuntime.jsx)("p", { style:{fontSize:"0.75rem",color:"var(--ink-muted)",marginBottom:12}, children: u.email }),
+
+        pair && (0, _jsxRuntime.jsxs)("div", { style:{background:"var(--cream)",borderRadius:12,border:"1.5px solid var(--border)",padding:"14px 16px",marginBottom:20}, children: [
+          (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}, children: [
+            (0, _jsxRuntime.jsx)("span", { style:{fontSize:"0.78rem",fontWeight:600,color:"var(--ink-light)",letterSpacing:"0.06em"}, children:"配對狀態" }),
+            (0, _jsxRuntime.jsx)("span", {
               style:{fontSize:"0.68rem",fontFamily:"monospace",padding:"3px 9px",borderRadius:20,fontWeight:600,
                      background:pair.locked?"var(--sage-pale)":"var(--amber-pale)",
                      color:pair.locked?"var(--sage)":"var(--amber)"},
               children: pair.locked ? "✓ 已鎖定" : "等待配對"
             }),
           ]}),
-          // Show invite code only if not locked (patient only)
-          u && u.role === "patient" && !pair.locked && _jsxRuntime.jsxs("div", { children: [
-            _jsxRuntime.jsx("div", { style:{fontFamily:"'DM Mono',monospace",fontSize:"1.8rem",color:"var(--rose)",letterSpacing:"0.25em",textAlign:"center",padding:"8px 0 4px"}, children: pair.inviteCode }),
-            _jsxRuntime.jsx("div", { style:{fontSize:"0.7rem",color:"var(--ink-muted)",textAlign:"center",marginBottom:8}, children: "邀請碼（傳給陪同者）" }),
-            _jsxRuntime.jsx("button", { className:"btn btn-secondary btn-sm", style:{marginTop:0}, onClick:copyCode, children:"複製邀請碼" }),
+          u && u.role === "patient" && !pair.locked && (0, _jsxRuntime.jsxs)("div", { children: [
+            (0, _jsxRuntime.jsx)("div", { style:{fontFamily:"'DM Mono',monospace",fontSize:"1.8rem",color:"var(--rose)",letterSpacing:"0.25em",textAlign:"center",padding:"8px 0 4px"}, children: pair.inviteCode }),
+            (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.7rem",color:"var(--ink-muted)",textAlign:"center",marginBottom:8}, children: "邀請碼（傳給陪同者）" }),
+            (0, _jsxRuntime.jsx)("button", { className:"btn btn-secondary btn-sm", style:{marginTop:0}, onClick:copyCode, children:"複製邀請碼" }),
           ]}),
-          pair.locked && _jsxRuntime.jsx("div", { style:{fontSize:"0.82rem",color:"var(--sage-dark)",textAlign:"center",padding:"4px 0"}, children:"✓ 配對已完成" }),
+          pair.locked && (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.82rem",color:"var(--sage-dark)",textAlign:"center",padding:"4px 0"}, children:"✓ 配對已完成" }),
         ]}),
 
-        _jsxRuntime.jsx("hr", { className: "divider" }),
-        _jsxRuntime.jsxs("p", { style:{fontSize:"0.75rem",color:"var(--ink-muted)",marginBottom:16,lineHeight:1.7}, children: [
+        (0, _jsxRuntime.jsx)("hr", { className: "divider" }),
+
+        // ════════════════════════════════════════════════════════════════
+        // ② 服藥與通知設定
+        // ════════════════════════════════════════════════════════════════
+        (0, _jsxRuntime.jsx)("div", { style:labelStyle, children:"服藥提醒通知" }),
+        (0, _jsxRuntime.jsx)("div", { style:cardStyle, children:
+          (0, _jsxRuntime.jsxs)("div", { className:"settings-row", children:[
+            (0, _jsxRuntime.jsxs)("div", { children:[
+              (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"推播通知" }),
+              (0, _jsxRuntime.jsx)("div", { className:"settings-sub",
+                children: (function(){
+                  try {
+                    if (typeof Notification === "undefined") return "此裝置不支援通知";
+                    if (Notification.permission === "denied") return "⚠ 已被瀏覽器封鎖，請至設定手動開啟";
+                    if (notifActive) return "已開啟";
+                    if (notifOk && notifMuted) return "已靜音（點擊重新開啟）";
+                    return "尚未開啟";
+                  } catch(e){ return ""; }
+                })()
+              }),
+            ]}),
+            (0, _jsxRuntime.jsx)("button", {
+              className: "btn btn-sm",
+              style: {
+                background: notifActive ? "var(--rose)" : "var(--sage)",
+                color:"white", border:"none", flexShrink:0,
+                minWidth:60, borderRadius:8, padding:"6px 14px",
+                fontSize:"0.82rem", cursor:"pointer",
+                fontFamily:"'Noto Serif TC',serif",
+              },
+              onClick: handleNotifToggle,
+              children: notifActive ? "關閉" : "開啟",
+            }),
+          ]})
+        }),
+
+        notifActive && (0, _jsxRuntime.jsxs)("div", { style:{marginBottom:20}, children:[
+          (0, _jsxRuntime.jsx)("div", { style:labelStyle, children:"吃藥前幾分鐘提醒" }),
+          (0, _jsxRuntime.jsx)("p", {
+            style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:12,lineHeight:1.55},
+            children:"可選多個，每次吃藥前分別提醒"
+          }),
+          (0, _jsxRuntime.jsx)("div", { className:"period-pills", style:{marginBottom:8}, children:
+            PRESET_MINS.map(function(mins) {
+              var active = minutesBefore.includes(mins);
+              return (0, _jsxRuntime.jsx)("button", {
+                type:"button",
+                className: "period-pill" + (active ? " selected" : ""),
+                onClick: function(){ toggleMinute(mins); },
+                children: mins + " 分鐘前"
+              }, mins);
+            })
+          }),
+          (minutesBefore.filter(function(m){ return !PRESET_MINS.includes(m); })).map(function(mins) {
+            return (0, _jsxRuntime.jsxs)("div", {
+              style:{display:"flex",alignItems:"center",gap:8,marginBottom:8},
+              children:[
+                (0, _jsxRuntime.jsx)("span", {
+                  style:{fontSize:"0.85rem",color:"var(--ink)",flex:1},
+                  children: mins + " 分鐘前（自訂）"
+                }),
+                (0, _jsxRuntime.jsx)("button", {
+                  className:"btn-icon",
+                  onClick: function(){ removeMinute(mins); },
+                  style:{flexShrink:0},
+                  children: (0, _jsxRuntime.jsx)("svg", {
+                    viewBox:"0 0 24 24", fill:"none", stroke:"currentColor",
+                    strokeWidth:"2.2", style:{width:18,height:18},
+                    children:(0, _jsxRuntime.jsx)("path", {d:"M18 6L6 18M6 6l12 12"})
+                  })
+                }),
+              ]
+            }, mins);
+          }),
+          (0, _jsxRuntime.jsx)("button", {
+            className:"btn btn-secondary",
+            style:{marginTop:4},
+            onClick: addCustomMinute,
+            children:"＋ 自訂分鐘數"
+          }),
+          minutesBefore.length === 0 && (0, _jsxRuntime.jsx)("p", {
+            style:{fontSize:"0.72rem",color:"var(--rose)",marginTop:8},
+            children:"⚠ 未選擇任何提醒時間"
+          }),
+        ]}),
+
+        // ── 換日時間 ──────────────────────────────────────────────────────
+        (0, _jsxRuntime.jsx)("div", { style:labelStyle, children:"日期設定" }),
+        (0, _jsxRuntime.jsx)("div", { style:cardStyle, children:
+          (0, _jsxRuntime.jsxs)("div", { className:"settings-row", children:[
+            (0, _jsxRuntime.jsxs)("div", { children:[
+              (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"換日時間" }),
+              (0, _jsxRuntime.jsx)("div", { className:"settings-sub", children:"幾點以前仍算前一天（預設 4:00）" }),
+            ]}),
+            (0, _jsxRuntime.jsx)("input", {
+              type:"number", min:0, max:11, value:hr,
+              style:{width:64,marginTop:0,textAlign:"center",flexShrink:0},
+              onChange: function(e){ update(function(s){ s.settings.dayResetHour=Number(e.target.value); }); }
+            }),
+          ]})
+        }),
+
+        // ── 服藥時段預設時間（摺疊，預設收合）────────────────────────────
+        (0, _jsxRuntime.jsxs)("div", {
+          className: "collapsible-row",
+          onClick: function(){ setPeriodOpen(!periodOpen); },
+          children: [
+            (0, _jsxRuntime.jsxs)("div", { children: [
+              (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"服藥時段預設時間" }),
+              (0, _jsxRuntime.jsx)("div", { className:"settings-sub", children:"新增藥物時自動帶入，個別藥物可再調整" }),
+            ]}),
+            (0, _jsxRuntime.jsx)("span", {
+              className: "collapsible-chevron" + (periodOpen ? " open" : ""),
+              children: "›"
+            }),
+          ]
+        }),
+        periodOpen && (0, _jsxRuntime.jsx)("div", { className:"period-time-grid", style:{marginTop:8},
+          children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
+            var pt2 = (state.settings && state.settings.periodTimes && typeof state.settings.periodTimes === "object")
+              ? state.settings.periodTimes : {};
+            var curT = pt2[p.id] || p.defaultTime || "08:00";
+            return (0, _jsxRuntime.jsxs)("div", { className:"period-time-row", key:p.id, children:[
+              (0, _jsxRuntime.jsx)("span", { className:"period-time-icon", children:p.icon }),
+              (0, _jsxRuntime.jsx)("span", { className:"period-time-label", children:p.label }),
+              (0, _jsxRuntime.jsx)("input", {
+                type:"time",
+                value: curT,
+                defaultValue: curT,
+                style:{width:110,marginTop:0,padding:"6px 10px",fontSize:"0.85rem"},
+                onChange: function(e){
+                  var v = e.target.value;
+                  if (!v) return;
+                  update(function(s){
+                    if (!s.settings) s.settings = {};
+                    if (!s.settings.periodTimes || typeof s.settings.periodTimes !== "object") s.settings.periodTimes = {};
+                    s.settings.periodTimes[p.id] = v;
+                  });
+                },
+                onBlur: function(e){
+                  var v = e.target.value;
+                  if (!v) return;
+                  update(function(s){
+                    if (!s.settings) s.settings = {};
+                    if (!s.settings.periodTimes || typeof s.settings.periodTimes !== "object") s.settings.periodTimes = {};
+                    s.settings.periodTimes[p.id] = v;
+                  });
+                }
+              }),
+            ]});
+          })
+        }),
+
+        (0, _jsxRuntime.jsx)("hr", { className: "divider", style:{marginTop:20} }),
+
+        // ════════════════════════════════════════════════════════════════
+        // ③ 帳號安全與登出
+        // ════════════════════════════════════════════════════════════════
+        (0, _jsxRuntime.jsxs)("p", { style:{fontSize:"0.75rem",color:"var(--ink-muted)",marginBottom:16,lineHeight:1.7}, children: [
           (Array.isArray(state.medications) ? state.medications : []).length, " 種藥物 · ",
           (Array.isArray(state.doseLogs) ? state.doseLogs : []).length, " 筆服藥紀錄 · ",
           (Array.isArray(state.doctorVisits) ? state.doctorVisits : []).length, " 筆看診紀錄",
         ]}),
-        _jsxRuntime.jsx("button", { className:"btn btn-secondary", style:{marginBottom:8,marginTop:0}, onClick:doLogout, children:"登出帳號（保留所有資料）" }),
-        _jsxRuntime.jsx("div", {
+        (0, _jsxRuntime.jsx)("button", { className:"btn btn-secondary", style:{marginBottom:8,marginTop:0}, onClick:doLogout, children:"登出帳號（保留所有資料）" }),
+        (0, _jsxRuntime.jsx)("div", {
           style:{background:"var(--amber-pale)",border:"1.5px solid #DFC070",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:"0.75rem",color:"var(--amber)",lineHeight:1.6},
           children:"⚠ 登出 ≠ 清除資料。登出只是換人登入，所有紀錄仍然保留。"
         }),
-        u && u.role === "patient" && _jsxRuntime.jsx("button", { className:"btn btn-danger btn-sm", onClick:resetAll, children:"清除所有資料（無法還原）" }),
-        _jsxRuntime.jsx("button", { className:"btn btn-ghost", style:{marginTop:10,width:"100%"}, onClick:onClose, children:"取消" }),
+        u && u.role === "patient" && (0, _jsxRuntime.jsx)("button", { className:"btn btn-danger btn-sm", onClick:resetAll, children:"清除所有資料（無法還原）" }),
+
+        (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:16,width:"100%"}, onClick:onClose, children:"關閉" }),
       ]}),
-    ]})]
+    ]})
   });
 }
-
 console.log('[PairCare] v8 definitions complete');
 
 function DashboardPage({
@@ -2458,8 +2687,7 @@ function DashboardPage({
               className: "header-icons",
               children: [
                 (0, _jsxRuntime.jsx)("span", { className: "date-chip", children: logicalDate }),
-                (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: function(){ setModal("settings"); }, children: Ico.settings }),
-                (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: function(){ setModal("profile"); }, children: Ico.user }),
+                (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: function(){ setModal("account"); }, children: Ico.user }),
               ]
             })
           ]
@@ -3594,249 +3822,6 @@ function AddVisitModal({
 }
 
 // ─── Settings Modal ───────────────────────────────────────────────────────────
-function SettingsModal({
-  state,
-  update,
-  onClose,
-  showToast,
-  notifOk,
-  askNotif
-}) {
-  var hr = (state.settings && state.settings.dayResetHour) || 4;
-  var minutesBefore = (state.settings && Array.isArray(state.settings.reminderMinutesBefore))
-    ? state.settings.reminderMinutesBefore : [10];
-
-  // Common preset options
-  var PRESET_MINS = [5, 10, 15, 20, 30];
-
-  function toggleMinute(mins) {
-    update(function(s) {
-      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
-      if (cur.includes(mins)) {
-        s.settings.reminderMinutesBefore = cur.filter(function(m){ return m !== mins; });
-      } else {
-        s.settings.reminderMinutesBefore = cur.concat([mins]).sort(function(a,b){ return a-b; });
-      }
-    });
-  }
-
-  function addCustomMinute() {
-    var val = parseInt(window.prompt('提前幾分鐘提醒？（1-120）', ''), 10);
-    if (!val || val < 1 || val > 120) return;
-    update(function(s) {
-      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
-      if (!cur.includes(val)) {
-        s.settings.reminderMinutesBefore = cur.concat([val]).sort(function(a,b){ return a-b; });
-      }
-    });
-  }
-
-  function removeMinute(mins) {
-    update(function(s) {
-      var cur = Array.isArray(s.settings.reminderMinutesBefore) ? s.settings.reminderMinutesBefore : [];
-      s.settings.reminderMinutesBefore = cur.filter(function(m){ return m !== mins; });
-    });
-  }
-
-  // notifOk + can decline
-  function handleNotifToggle() {
-    if (notifOk) {
-      // User wants to turn off — we can't revoke permission programmatically,
-      // but we store a local "muted" flag
-      update(function(s) { s.settings.notifMuted = true; });
-      showToast('提醒已靜音。如需完全關閉請至瀏覽器設定。');
-    } else {
-      askNotif();
-    }
-  }
-
-  var notifMuted = state.settings && state.settings.notifMuted;
-  var notifActive = notifOk && !notifMuted;
-
-  var labelStyle = {
-    fontSize:"0.75rem", fontWeight:600, color:"var(--ink-muted)",
-    letterSpacing:"0.12em", textTransform:"uppercase",
-    fontFamily:"'DM Mono',monospace", marginBottom:10
-  };
-  var cardStyle = {
-    background:"white", borderRadius:12,
-    border:"1.5px solid var(--border)", padding:"0 16px", marginBottom:12
-  };
-
-  return (0, _jsxRuntime.jsx)("div", {
-    className: "modal-overlay",
-    onClick: function(e){ if(e.target===e.currentTarget) onClose(); },
-    children: (0, _jsxRuntime.jsxs)("div", {
-      className: "modal",
-      children: [
-        (0, _jsxRuntime.jsxs)("div", { className:"modal-top", children:[
-          (0, _jsxRuntime.jsx)("div", { className:"modal-handle" }),
-          (0, _jsxRuntime.jsx)("h3", { children:"設定" }),
-        ]}),
-        (0, _jsxRuntime.jsxs)("div", { className:"modal-scroll", children:[
-
-          // ── 推播通知 on/off ────────────────────────────────────────────────
-          (0, _jsxRuntime.jsx)("div", { style:labelStyle, children:"服藥提醒通知" }),
-          (0, _jsxRuntime.jsx)("div", { style:cardStyle, children:
-            (0, _jsxRuntime.jsxs)("div", { className:"settings-row", children:[
-              (0, _jsxRuntime.jsxs)("div", { children:[
-                (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"推播通知" }),
-                (0, _jsxRuntime.jsx)("div", { className:"settings-sub",
-                  children: (function(){
-                    try {
-                      if (typeof Notification === "undefined") return "此裝置不支援通知";
-                      if (Notification.permission === "denied") return "⚠ 已被瀏覽器封鎖，請至設定手動開啟";
-                      if (notifActive) return "已開啟";
-                      if (notifOk && notifMuted) return "已靜音（點擊重新開啟）";
-                      return "尚未開啟";
-                    } catch(e){ return ""; }
-                  })()
-                }),
-              ]}),
-              // Toggle button — always shown, allows turning off
-              (0, _jsxRuntime.jsx)("button", {
-                className: "btn btn-sm",
-                style: {
-                  background: notifActive ? "var(--rose)" : "var(--sage)",
-                  color:"white", border:"none", flexShrink:0,
-                  minWidth:60, borderRadius:8, padding:"6px 14px",
-                  fontSize:"0.82rem", cursor:"pointer",
-                  fontFamily:"'Noto Serif TC',serif",
-                },
-                onClick: handleNotifToggle,
-                children: notifActive ? "關閉" : "開啟",
-              }),
-            ]})
-          }),
-
-          // ── 提前幾分鐘提醒 ────────────────────────────────────────────────
-          notifActive && (0, _jsxRuntime.jsxs)("div", { style:{marginBottom:20}, children:[
-            (0, _jsxRuntime.jsx)("div", { style:labelStyle, children:"吃藥前幾分鐘提醒" }),
-            (0, _jsxRuntime.jsx)("p", {
-              style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:12,lineHeight:1.55},
-              children:"可選多個，每次吃藥前分別提醒"
-            }),
-
-            // Preset pills
-            (0, _jsxRuntime.jsx)("div", { className:"period-pills", style:{marginBottom:8}, children:
-              PRESET_MINS.map(function(mins) {
-                var active = minutesBefore.includes(mins);
-                return (0, _jsxRuntime.jsx)("button", {
-                  type:"button",
-                  className: "period-pill" + (active ? " selected" : ""),
-                  onClick: function(){ toggleMinute(mins); },
-                  children: mins + " 分鐘前"
-                }, mins);
-              })
-            }),
-
-            // Custom minutes (not in preset)
-            (minutesBefore.filter(function(m){ return !PRESET_MINS.includes(m); })).map(function(mins) {
-              return (0, _jsxRuntime.jsxs)("div", {
-                style:{display:"flex",alignItems:"center",gap:8,marginBottom:8},
-                children:[
-                  (0, _jsxRuntime.jsx)("span", {
-                    style:{fontSize:"0.85rem",color:"var(--ink)",flex:1},
-                    children: mins + " 分鐘前（自訂）"
-                  }),
-                  (0, _jsxRuntime.jsx)("button", {
-                    className:"btn-icon",
-                    onClick: function(){ removeMinute(mins); },
-                    style:{flexShrink:0},
-                    children: (0, _jsxRuntime.jsx)("svg", {
-                      viewBox:"0 0 24 24", fill:"none", stroke:"currentColor",
-                      strokeWidth:"2.2", style:{width:18,height:18},
-                      children:(0, _jsxRuntime.jsx)("path", {d:"M18 6L6 18M6 6l12 12"})
-                    })
-                  }),
-                ]
-              }, mins);
-            }),
-
-            (0, _jsxRuntime.jsx)("button", {
-              className:"btn btn-secondary",
-              style:{marginTop:4},
-              onClick: addCustomMinute,
-              children:"＋ 自訂分鐘數"
-            }),
-
-            minutesBefore.length === 0 && (0, _jsxRuntime.jsx)("p", {
-              style:{fontSize:"0.72rem",color:"var(--rose)",marginTop:8},
-              children:"⚠ 未選擇任何提醒時間"
-            }),
-          ]}),
-
-          // ── 換日時間 ──────────────────────────────────────────────────────
-          (0, _jsxRuntime.jsx)("div", { style:Object.assign({},labelStyle,{marginTop:8}), children:"日期設定" }),
-          (0, _jsxRuntime.jsx)("div", { style:cardStyle, children:
-            (0, _jsxRuntime.jsxs)("div", { className:"settings-row", children:[
-              (0, _jsxRuntime.jsxs)("div", { children:[
-                (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"換日時間" }),
-                (0, _jsxRuntime.jsx)("div", { className:"settings-sub", children:"幾點以前仍算前一天（預設 4:00）" }),
-              ]}),
-              (0, _jsxRuntime.jsx)("input", {
-                type:"number", min:0, max:11, value:hr,
-                style:{width:64,marginTop:0,textAlign:"center",flexShrink:0},
-                onChange: function(e){ update(function(s){ s.settings.dayResetHour=Number(e.target.value); }); }
-              }),
-            ]})
-          }),
-
-          // ── 時段預設時間 ──────────────────────────────────────────────────
-          (0, _jsxRuntime.jsx)("div", { style:Object.assign({},labelStyle,{marginTop:8}), children:"服藥時段預設時間" }),
-          (0, _jsxRuntime.jsx)("p", {
-            style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:12,lineHeight:1.55},
-            children:"新增藥物時自動帶入，個別藥物可再調整"
-          }),
-          (0, _jsxRuntime.jsx)("div", { className:"period-time-grid",
-            children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
-              var pt2 = (state.settings && state.settings.periodTimes && typeof state.settings.periodTimes === "object")
-                ? state.settings.periodTimes : {};
-              var curT = pt2[p.id] || p.defaultTime || "08:00";
-              return (0, _jsxRuntime.jsxs)("div", { className:"period-time-row", key:p.id, children:[
-                (0, _jsxRuntime.jsx)("span", { className:"period-time-icon", children:p.icon }),
-                (0, _jsxRuntime.jsx)("span", { className:"period-time-label", children:p.label }),
-                (0, _jsxRuntime.jsx)("input", {
-                  type:"time",
-                  value: curT,
-                  defaultValue: curT,
-                  style:{width:110,marginTop:0,padding:"6px 10px",fontSize:"0.85rem"},
-                  onChange: function(e){
-                    var v = e.target.value;
-                    if (!v) return;
-                    update(function(s){
-                      if (!s.settings) s.settings = {};
-                      if (!s.settings.periodTimes || typeof s.settings.periodTimes !== "object") s.settings.periodTimes = {};
-                      s.settings.periodTimes[p.id] = v;
-                    });
-                  },
-                  onBlur: function(e){
-                    var v = e.target.value;
-                    if (!v) return;
-                    update(function(s){
-                      if (!s.settings) s.settings = {};
-                      if (!s.settings.periodTimes || typeof s.settings.periodTimes !== "object") s.settings.periodTimes = {};
-                      s.settings.periodTimes[p.id] = v;
-                    });
-                  }
-                }),
-              ]});
-            })
-          }),
-
-          (0, _jsxRuntime.jsx)("button", {
-            className:"btn btn-secondary", style:{marginTop:16},
-            onClick:onClose, children:"關閉"
-          }),
-        ]}),
-      ]
-    })
-  });
-}
-// ─── Profile Modal ────────────────────────────────────────────────────────────
-// Alias old ProfileModal → ProfileModalV8
-var ProfileModal = ProfileModalV8;
-
 // Final exports
 if (typeof App !== "undefined") window.App = App;
 if (typeof ErrorBoundary !== "undefined") window.ErrorBoundary = ErrorBoundary;
