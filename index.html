@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.6 start');
+console.log('[PairCare] v11.7 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -770,8 +770,40 @@ label {
 .inv-date { font-size: 0.68rem; color: var(--ink-muted); margin-top: 2px; }
 
 /* ════════════════════════════════════════════════════════════════════════
-   MEDICATION CARDS — card-first, progress-bar stock display
+   MEDICATION CARDS (simplified) — name, schedule line, stock bar only
+   Color tiers: green >14d, orange 7-14d, red 3-6d, deep-red <=2d
    ════════════════════════════════════════════════════════════════════════ */
+.med-card-simple {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: white; border-radius: var(--radius); border: 1.5px solid var(--border);
+  padding: 16px 18px; margin-bottom: 12px; cursor: pointer;
+  box-shadow: var(--shadow-sm); transition: transform 0.12s;
+}
+.med-card-simple:active { transform: scale(0.99); }
+.med-card-simple.paused { opacity: 0.72; }
+.med-simple-icon {
+  width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0;
+  background: var(--rose-pale); display: flex; align-items: center; justify-content: center;
+  font-size: 1.2rem;
+}
+.med-card-simple.paused .med-simple-icon { background: var(--cream); }
+.med-simple-body { flex: 1; min-width: 0; }
+.med-simple-name { font-size: 1rem; font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+.med-simple-sched { font-size: 0.8rem; color: var(--ink-muted); margin-bottom: 8px; }
+.med-simple-stock { font-size: 0.85rem; font-weight: 500; margin-bottom: 7px; }
+.med-simple-stock.lv-green   { color: var(--sage-dark); }
+.med-simple-stock.lv-orange  { color: #B8782A; }
+.med-simple-stock.lv-red     { color: #C0524A; }
+.med-simple-stock.lv-deepred { color: #8C2F28; font-weight: 700; }
+.med-simple-bar-track {
+  height: 6px; border-radius: 4px; background: var(--cream); overflow: hidden;
+}
+.med-simple-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+.med-simple-bar-fill.lv-green   { background: var(--sage); }
+.med-simple-bar-fill.lv-orange  { background: #D9923B; }
+.med-simple-bar-fill.lv-red     { background: #C0524A; }
+.med-simple-bar-fill.lv-deepred { background: #8C2F28; }
+
 .med-card {
   background: white; border-radius: var(--radius-lg);
   border: 1.5px solid var(--border); padding: 18px 20px;
@@ -1276,10 +1308,6 @@ window.App = function App() {
   var detailMed    = _detailMed[0];
   var setDetailMed = _detailMed[1];
 
-  var _refillMed = useState(null);
-  var refillMed    = _refillMed[0];
-  var setRefillMed = _refillMed[1];
-
   var _toast = useState(null);
   var toast    = _toast[0];
   var setToast = _toast[1];
@@ -1711,7 +1739,7 @@ window.App = function App() {
 
     _jsxRuntime.jsxs("div", { style: { flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }, children: [
       tab === "today"  && _jsxRuntime.jsx(DashboardPage, { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, now:now, setTab:setTab }),
-      tab === "meds"   && _jsxRuntime.jsx(MedsPage,   { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, setDetailMed:setDetailMed, setRefillMed:setRefillMed }),
+      tab === "meds"   && _jsxRuntime.jsx(MedsPage,   { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal, logicalDate:logicalDate, setDetailMed:setDetailMed }),
       tab === "visits" && _jsxRuntime.jsx(VisitsPage, { state:state, update:update, isViewer:isSupporter, showToast:showToast, setModal:setModal }),
       tab === "log"    && _jsxRuntime.jsx(LogPage,    { state:state, isViewer:isSupporter, logicalDate:logicalDate }),
     ]}),
@@ -1786,10 +1814,6 @@ window.App = function App() {
     detailMed && _jsxRuntime.jsx(MedDetailModal, {
       med: detailMed, state: state, update: update, isViewer: isSupporter,
       onClose: function(){ setDetailMed(null); }, showToast: showToast
-    }),
-    refillMed && !isSupporter && _jsxRuntime.jsx(QuickRefillModal, {
-      med: refillMed, update: update,
-      onClose: function(){ setRefillMed(null); }, showToast: showToast
     }),
     modal === "settings" && _jsxRuntime.jsx(SettingsModal, {
       state: state, update: update,
@@ -2106,65 +2130,6 @@ function PairSetupFlow(props) {
 // ─── Refill Center Modal ──────────────────────────────────────────────────────
 // Shows estimated days remaining per medication, with manual "已補藥" action
 // ─── Quick Refill Modal (single medication, opened from MedCard) ────────────
-function QuickRefillModal({ med, update, onClose, showToast }) {
-  var _amt = useState("");
-  var amount    = _amt[0];
-  var setAmount = _amt[1];
-
-  var dailyDose = (med.schedules || []).reduce(function(s, sc){ return s + sc.dose; }, 0);
-  var est = estimateFinishDate(med.remainingCount, dailyDose);
-
-  function confirm() {
-    var n = Number(amount);
-    if (!n || n <= 0) { showToast("請輸入補充顆數"); return; }
-    update(function(s) {
-      var m = s.medications.find(function(mm){ return mm.id === med.id; });
-      if (m) {
-        m.remainingCount = (m.remainingCount || 0) + n;
-        m.totalCount = Math.max(m.totalCount || 0, m.remainingCount);
-      }
-    });
-    showToast("✓ 已記錄補藥 +" + n + " 顆");
-    onClose();
-  }
-
-  return (0, _jsxRuntime.jsx)("div", {
-    className: "modal-overlay",
-    onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
-    children: (0, _jsxRuntime.jsxs)("div", { className: "modal", children: [
-      (0, _jsxRuntime.jsxs)("div", { className: "modal-top", children: [
-        (0, _jsxRuntime.jsx)("div", { className: "modal-handle" }),
-        (0, _jsxRuntime.jsx)("h3", { children: "補藥" }),
-      ]}),
-      (0, _jsxRuntime.jsxs)("div", { className: "modal-scroll", children: [
-        (0, _jsxRuntime.jsxs)("div", { style:{ textAlign:"center", marginBottom:20 }, children: [
-          (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1.05rem",fontWeight:600,color:"var(--ink)"}, children: med.name }),
-          (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"0.82rem",color:"var(--ink-muted)",marginTop:4}, children: [
-            "目前剩餘 ", med.remainingCount, " 顆",
-            est && (" · 約可服用 " + est.days + " 天")
-          ]}),
-        ]}),
-        (0, _jsxRuntime.jsxs)("div", { className: "field", children: [
-          (0, _jsxRuntime.jsx)("label", { children: "這次補充幾顆？" }),
-          (0, _jsxRuntime.jsx)("input", {
-            type: "number", min: 1, autoFocus: true,
-            value: amount, placeholder: "例：30",
-            style: { textAlign:"center", fontSize:"1.3rem" },
-            onChange: function(e){ setAmount(e.target.value); },
-            onKeyDown: function(e){ if (e.key === "Enter") confirm(); }
-          }),
-        ]}),
-        amount && Number(amount) > 0 && (0, _jsxRuntime.jsxs)("p", {
-          style:{ fontSize:"0.8rem", color:"var(--sage-dark)", textAlign:"center", marginTop:-8, marginBottom:16 },
-          children: ["→ 補充後共剩 ", med.remainingCount + Number(amount), " 顆"]
-        }),
-        (0, _jsxRuntime.jsx)("button", { className:"btn btn-primary", onClick:confirm, children:"確認補藥" }),
-        (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:8,width:"100%"}, onClick:onClose, children:"取消" }),
-      ]}),
-    ]})
-  });
-}
-
 function RefillCenterModal({ state, update, isViewer, onClose, showToast }) {
   var safeMeds = Array.isArray(state.medications) ? state.medications : [];
   var activeMeds = safeMeds.filter(function(m) { return m && m.status === "active"; });
@@ -2736,8 +2701,7 @@ function MedsPage({
   showToast,
   setModal,
   logicalDate,
-  setDetailMed,
-  setRefillMed
+  setDetailMed
 }) {
   var active = (Array.isArray(state.medications) ? state.medications : []).filter(function(m){ return m.status === "active"; });
   var paused = (Array.isArray(state.medications) ? state.medications : []).filter(function(m){ return m.status === "paused"; });
@@ -2748,9 +2712,6 @@ function MedsPage({
 
   function openDetail(med) {
     if (setDetailMed) setDetailMed(med);
-  }
-  function openRefill(med) {
-    if (setRefillMed) setRefillMed(med);
   }
   function toggle(id) {
     if (isViewer) return;
@@ -2811,9 +2772,7 @@ function MedsPage({
             : shownMeds.map(m => (0, _jsxRuntime.jsx)(MedCard, {
                 med: m,
                 isViewer: isViewer,
-                onToggle: toggle,
-                onOpenDetail: openDetail,
-                onRefill: openRefill
+                onOpenDetail: openDetail
               }, m.id))
         ]
       })
@@ -2827,78 +2786,44 @@ function MedsPage({
 function MedCard({
   med,
   isViewer,
-  onToggle,
-  onOpenDetail,
-  onRefill
+  onOpenDetail
 }) {
-  var pct = med.totalCount > 0 ? Math.round(med.remainingCount / med.totalCount * 100) : 0;
   var dailyDose = (med.schedules || []).reduce((s, sc) => s + sc.dose, 0);
   var est = estimateFinishDate(med.remainingCount, dailyDose);
+  var pct = med.totalCount > 0 ? Math.round(med.remainingCount / med.totalCount * 100) : 0;
 
-  // 4-tier stock color system: green >14d, yellow 7-14d, orange 3-7d, red <=3d
+  // Stock color tiers per spec: >14d green, 7-14d orange, 3-6d red, <=2d deep-red
   var level = "green";
   if (est) {
-    if (est.days <= 3) level = "red";
-    else if (est.days <= 7) level = "orange";
-    else if (est.days <= 14) level = "yellow";
+    if (est.days <= 2) level = "deepred";
+    else if (est.days <= 6) level = "red";
+    else if (est.days <= 14) level = "orange";
   }
-  var levelLabel = { green: "正常", yellow: "尚可", orange: "偏低", red: "即將不足" }[level];
+
+  // First schedule used for the one-line summary (matches reference design)
+  var firstSched = (med.schedules || [])[0];
+  var firstPeriod = firstSched && PERIOD_MAP[firstSched.periodId];
+  var scheduleLine = firstPeriod
+    ? (firstPeriod.label + " · 口服 · " + firstSched.dose + " 顆")
+    : "尚未設定時段";
 
   return (0, _jsxRuntime.jsxs)("div", {
-    className: "med-card " + med.status,
+    className: "med-card-simple " + med.status,
     onClick: function(){ if (onOpenDetail) onOpenDetail(med); },
-    style: { cursor: onOpenDetail ? "pointer" : "default" },
     children: [
-      (0, _jsxRuntime.jsxs)("div", {
-        className: "med-card-top",
-        children: [
-          (0, _jsxRuntime.jsxs)("div", { className: "med-card-name-row", children: [
-            (0, _jsxRuntime.jsx)("div", { className: "med-card-icon", children: "💊" }),
-            (0, _jsxRuntime.jsx)("div", { className: "med-card-name", children: med.name }),
+      (0, _jsxRuntime.jsx)("div", { className: "med-simple-icon", children: "💊" }),
+      (0, _jsxRuntime.jsxs)("div", { className: "med-simple-body", children: [
+        (0, _jsxRuntime.jsx)("div", { className: "med-simple-name", children: med.name }),
+        (0, _jsxRuntime.jsx)("div", { className: "med-simple-sched", children: scheduleLine }),
+        med.status === "active" && (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, { children: [
+          (0, _jsxRuntime.jsxs)("div", { className: "med-simple-stock lv-" + level, children: [
+            "剩餘 ", med.remainingCount, " 顆", est && (" (約 " + est.days + " 天)")
           ]}),
-          (0, _jsxRuntime.jsx)("span", {
-            className: "status-tag " + (med.status === "active" ? "tag-active" : "tag-paused"),
-            children: med.status === "active" ? "服用中" : "已停藥"
-          })
-        ]
-      }),
-      (0, _jsxRuntime.jsx)("div", {
-        className: "med-period-tags",
-        children: (med.schedules || []).map((sched, i) => (0, _jsxRuntime.jsxs)("span", {
-          className: "med-period-tag",
-          children: [PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].icon, " ", PERIOD_MAP[sched.periodId] && PERIOD_MAP[sched.periodId].label, " × ", sched.dose, " 顆"]
-        }, i))
-      }),
-
-      // ── Stock progress bar (replaces raw remainingCount/totalCount numbers) ──
-      med.status === "active" && (0, _jsxRuntime.jsxs)("div", { className: "med-stock-block", children: [
-        (0, _jsxRuntime.jsx)("div", { className: "med-stock-bar-track", children:
-          (0, _jsxRuntime.jsx)("div", { className: "med-stock-bar-fill lv-" + level, style: { width: pct + "%" } })
-        }),
-        (0, _jsxRuntime.jsxs)("div", { className: "med-stock-text", children: [
-          (0, _jsxRuntime.jsxs)("span", { className: "left", children: [
-            "剩餘 ", (0, _jsxRuntime.jsx)("b", { children: med.remainingCount }), " 顆",
-            est && (" · 約 " + est.days + " 天")
-          ]}),
-          (0, _jsxRuntime.jsx)("span", { className: "right lv-" + level, children: levelLabel }),
+          (0, _jsxRuntime.jsx)("div", { className: "med-simple-bar-track", children:
+            (0, _jsxRuntime.jsx)("div", { className: "med-simple-bar-fill lv-" + level, style: { width: pct + "%" } })
+          }),
         ]}),
       ]}),
-
-      !isViewer && (0, _jsxRuntime.jsx)("div", {
-        className: "med-footer",
-        children: [
-          med.status === "active" && (0, _jsxRuntime.jsx)("button", {
-            className: "btn btn-sm btn-ghost",
-            onClick: (e) => { e.stopPropagation(); if (onRefill) onRefill(med); },
-            children: "💊 補藥"
-          }),
-          (0, _jsxRuntime.jsx)("button", {
-            className: "btn btn-sm btn-ghost",
-            onClick: (e) => { e.stopPropagation(); onToggle(med.id); },
-            children: med.status === "active" ? "暫停此藥" : "恢復服用"
-          })
-        ]
-      })
     ]
   });
 }
