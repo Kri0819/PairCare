@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.10 start');
+console.log('[PairCare] v11.11 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -1132,6 +1132,27 @@ label {
 .period-pill:active { transform: scale(0.97); }
 .period-pill.selected { background: var(--rose-pale); border-color: var(--rose); color: var(--rose-dark); }
 .period-pill-icon { font-size: 0.9rem; line-height: 1; }
+
+/* ── Schedule box (大方框 chip, used in MedDetailModal 服藥時段) ── */
+.sched-box {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  width: calc((100% - 20px) / 3); padding: 14px 8px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: white; color: var(--ink-light);
+  font-size: 0.82rem; font-weight: 500; cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+.sched-box:active { transform: scale(0.97); }
+.sched-box.selected { background: var(--rose-pale); border-color: var(--rose); color: var(--rose-dark); font-weight: 600; }
+
+/* ── Photo action-sheet buttons ── */
+.action-sheet-btn {
+  width: 100%; text-align: left; display: flex; align-items: center; gap: 10px;
+  padding: 16px 18px; border-radius: var(--radius-sm); border: 1.5px solid var(--border);
+  background: white; color: var(--ink); font-family: 'Noto Serif TC', serif;
+  font-size: 0.95rem; font-weight: 500; cursor: pointer; margin-bottom: 10px;
+}
+.action-sheet-btn:active { background: var(--cream); }
+.action-sheet-btn.danger { color: #C0524A; border-color: #F0D5D2; }
 
 .period-dose-area { background: var(--cream); border-radius: var(--radius-sm); padding: 13px 15px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 10px; }
 .period-dose-row-item { display: flex; align-items: center; gap: 10px; }
@@ -2861,8 +2882,9 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
   var _method = useState(med.method || "口服"); var method = _method[0]; var setMethod = _method[1];
 
   // Collapsible sections — both start closed
-  var _schedOpen  = useState(false); var schedOpen  = _schedOpen[0];  var setSchedOpen  = _schedOpen[1];
-  var _refillOpen = useState(false); var refillOpen = _refillOpen[0]; var setRefillOpen = _refillOpen[1];
+  var _schedOpen   = useState(false); var schedOpen   = _schedOpen[0];   var setSchedOpen   = _schedOpen[1];
+  var _refillOpen  = useState(false); var refillOpen  = _refillOpen[0]; var setRefillOpen  = _refillOpen[1];
+  var _photoMenuOpen = useState(false); var photoMenuOpen = _photoMenuOpen[0]; var setPhotoMenuOpen = _photoMenuOpen[1];
 
   // Refill form fields
   var _rfDate   = useState(new Date().toISOString().slice(0,10)); var rfDate   = _rfDate[0];   var setRfDate   = _rfDate[1];
@@ -2872,7 +2894,8 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
   var periodTimes = (state.settings && state.settings.periodTimes) || {};
   var dailyDose = schedules.reduce(function(s, sc){ return s + (sc.dose || 0); }, 0);
   var est = estimateFinishDate(rem, dailyDose);
-  var fileInputRef = useRef(null);
+  var photoInputRef  = useRef(null); // gallery (no capture attr)
+  var cameraInputRef = useRef(null); // camera (capture="environment")
 
   var METHOD_OPTIONS = ["口服", "外用", "塞劑", "打針", "吸入", "貼片"];
 
@@ -2882,8 +2905,8 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
       var m = s.medications.find(function(mm){ return mm.id === med.id; });
       if (m) {
         m.name = name.trim();
-        m.totalCount = Number(total) || 0;
-        m.remainingCount = Number(rem) || 0;
+        // totalCount / remainingCount are NOT editable here — they only
+        // change via dose-taking (markPeriodTaken) or refill (confirmRefill)
         m.schedules = schedules;
         m.photo = photo;
         m.method = method;
@@ -2902,8 +2925,7 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
     onClose();
   }
 
-  function handlePhotoChange(e) {
-    var file = e.target.files && e.target.files[0];
+  function readPhotoFile(file) {
     if (!file) return;
     if (file.size > 4 * 1024 * 1024) { showToast("照片太大，請選擇小於 4MB 的圖片"); return; }
     var reader = new FileReader();
@@ -2911,10 +2933,9 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
     reader.onerror = function() { showToast("照片讀取失敗"); };
     reader.readAsDataURL(file);
   }
-
-  function removePhoto() {
-    setPhoto(null);
-  }
+  function handleGalleryChange(e)  { readPhotoFile(e.target.files && e.target.files[0]); setPhotoMenuOpen(false); }
+  function handleCameraChange(e)   { readPhotoFile(e.target.files && e.target.files[0]); setPhotoMenuOpen(false); }
+  function removePhoto() { setPhoto(null); setPhotoMenuOpen(false); }
 
   function adjustDose(idx, delta) {
     setSchedules(function(prev) {
@@ -2952,7 +2973,8 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
     return p ? (p.icon + " " + p.label) : "尚未設定";
   })();
 
-  return (0, _jsxRuntime.jsx)("div", {
+  return _jsxRuntime.jsxs(_jsxRuntime.Fragment, { children: [
+  (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
     onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
     children: (0, _jsxRuntime.jsxs)("div", { className: "modal", children: [
@@ -2961,11 +2983,11 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
       }),
       (0, _jsxRuntime.jsxs)("div", { className: "modal-scroll", children: [
 
-        // ── Photo header (default pill icon, tap to add photo) ─────────────
+        // ── Photo header — tap opens an action sheet (拍照/從圖庫選擇/移除) ──
         (0, _jsxRuntime.jsxs)("div", { className: "med-detail-header", children: [
           (0, _jsxRuntime.jsxs)("div", {
             className: "med-photo-wrap",
-            onClick: function(){ if (!isViewer && fileInputRef.current) fileInputRef.current.click(); },
+            onClick: function(){ if (!isViewer) setPhotoMenuOpen(true); },
             children: [
               photo
                 ? (0, _jsxRuntime.jsx)("img", { src: photo, className: "med-photo-img", alt: "藥品照片" })
@@ -2973,14 +2995,16 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
               !isViewer && (0, _jsxRuntime.jsx)("div", { className: "med-photo-badge", children: "📷" }),
             ]
           }),
+          // Hidden inputs — one for gallery, one for camera capture
+          !isViewer && (0, _jsxRuntime.jsx)("input", {
+            type: "file", accept: "image/*",
+            ref: photoInputRef, style: { display: "none" },
+            onChange: handleGalleryChange
+          }),
           !isViewer && (0, _jsxRuntime.jsx)("input", {
             type: "file", accept: "image/*", capture: "environment",
-            ref: fileInputRef, style: { display: "none" },
-            onChange: handlePhotoChange
-          }),
-          !isViewer && photo && (0, _jsxRuntime.jsx)("button", {
-            className: "btn-ghost", style: { fontSize:"0.72rem", marginTop:4 },
-            onClick: removePhoto, children: "移除照片"
+            ref: cameraInputRef, style: { display: "none" },
+            onChange: handleCameraChange
           }),
           isViewer
             ? (0, _jsxRuntime.jsx)("div", { className: "med-detail-name", children: med.name })
@@ -2992,8 +3016,82 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
           (0, _jsxRuntime.jsx)("div", { className: "med-detail-sub", children: med.status === "active" ? "服用中" : "已停藥" }),
         ]}),
 
-        // ── 用法 + 用量 (separate fields) ─────────────────────────────────
-        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-card", children: [
+        // ── ① 服藥時段（摺疊，預設收合，展開後是大方框 chip + 中文標籤）─────
+        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-card", style:{padding:"4px 0"}, children: [
+          (0, _jsxRuntime.jsxs)("div", {
+            className: "med-detail-row",
+            style: { cursor:"pointer" },
+            onClick: function(){ setSchedOpen(!schedOpen); },
+            children: [
+              (0, _jsxRuntime.jsxs)("div", { children: [
+                (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.95rem",fontWeight:600,color:"var(--ink)",marginBottom:4}, children:"服藥時段" }),
+                !schedOpen && (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"0.85rem",color:"var(--ink-light)"}, children: [
+                  schedules[0] && PERIOD_MAP[schedules[0].periodId] ? PERIOD_MAP[schedules[0].periodId].icon : "",
+                  " ", firstSchedLabel.replace(/^[^\\s]+\\s/, ""),
+                  schedules.length > 1 ? ("等 " + schedules.length + " 個時段") : ""
+                ]}),
+              ]}),
+              (0, _jsxRuntime.jsx)("span", { className: "collapsible-chevron" + (schedOpen ? " open" : ""), style:{fontSize:"1.2rem"}, children: schedOpen ? "︿" : "﹀" }),
+            ]
+          }),
+          schedOpen && !isViewer && (0, _jsxRuntime.jsxs)("div", { style:{padding:"0 18px 16px"}, children: [
+            (0, _jsxRuntime.jsx)("div", {
+              style: { display:"flex", flexWrap:"wrap", gap:10, marginTop: 4 },
+              children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
+                var isSelected = schedules.some(function(s){ return s.periodId === p.id; });
+                return (0, _jsxRuntime.jsxs)("button", {
+                  type: "button",
+                  className: "sched-box" + (isSelected ? " selected" : ""),
+                  onClick: function() {
+                    if (isSelected) {
+                      setSchedules(schedules.filter(function(s){ return s.periodId !== p.id; }));
+                    } else {
+                      var defTime = getDefaultPeriodTime(p.id, periodTimes);
+                      setSchedules(schedules.concat([{ periodId: p.id, time: defTime, dose: 1 }]));
+                    }
+                  },
+                  children: [
+                    (0, _jsxRuntime.jsx)("span", { style:{fontSize:"1.1rem"}, children: p.icon }),
+                    (0, _jsxRuntime.jsx)("span", { children: p.label }),
+                  ]
+                }, p.id);
+              })
+            }),
+          ]}),
+          schedOpen && isViewer && (0, _jsxRuntime.jsx)("div", { style:{padding:"0 18px 16px",fontSize:"0.85rem",color:"var(--ink-light)"},
+            children: schedules.map(function(sc){
+              var p = PERIOD_MAP[sc.periodId];
+              return p ? (p.icon + p.label) : sc.periodId;
+            }).join("、") || "尚未設定"
+          }),
+        ]}),
+
+        // ── ② 用量（每個已選時段各一行）────────────────────────────────────
+        (0, _jsxRuntime.jsx)("div", { className: "med-detail-card", children:
+          schedules.length === 0
+            ? (0, _jsxRuntime.jsx)("div", { className:"med-detail-row", children:
+                (0, _jsxRuntime.jsx)("span", { className:"label", children:"尚未選擇服藥時段" })
+              })
+            : schedules.map(function(sc, idx) {
+                var p = PERIOD_MAP[sc.periodId];
+                return (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", key: idx, children: [
+                  (0, _jsxRuntime.jsxs)("span", { className: "label", children: [
+                    "用量", p ? (" · " + p.icon + p.label) : ""
+                  ]}),
+                  isViewer
+                    ? (0, _jsxRuntime.jsxs)("span", { className: "value", children: [sc.dose, " 顆"] })
+                    : (0, _jsxRuntime.jsxs)("div", { className: "dose-stepper", children: [
+                        (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, -0.5); }, children: "−" }),
+                        (0, _jsxRuntime.jsx)("div", { className: "dose-step-value", children: sc.dose }),
+                        (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, 0.5); }, children: "＋" }),
+                        (0, _jsxRuntime.jsx)("span", { className: "dose-step-unit", children: "顆" }),
+                      ]}),
+                ]});
+              })
+        }),
+
+        // ── ③ 服用方式 ───────────────────────────────────────────────────
+        (0, _jsxRuntime.jsx)("div", { className: "med-detail-card", children:
           (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
             (0, _jsxRuntime.jsx)("span", { className: "label", children: "服用方式" }),
             isViewer
@@ -3006,70 +3104,24 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
                     return (0, _jsxRuntime.jsx)("option", { value: opt, children: opt }, opt);
                   })
                 }),
-          ]}),
-          schedules.map(function(sc, idx) {
-            var p = PERIOD_MAP[sc.periodId];
-            return (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", key: idx, children: [
-              (0, _jsxRuntime.jsxs)("span", { className: "label", children: [
-                "用量", p ? (" · " + p.icon + p.label) : ""
-              ]}),
-              isViewer
-                ? (0, _jsxRuntime.jsxs)("span", { className: "value", children: [sc.dose, " 顆"] })
-                : (0, _jsxRuntime.jsxs)("div", { className: "dose-stepper", children: [
-                    (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, -0.5); }, children: "−" }),
-                    (0, _jsxRuntime.jsx)("div", { className: "dose-step-value", children: sc.dose }),
-                    (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, 0.5); }, children: "＋" }),
-                    (0, _jsxRuntime.jsx)("span", { className: "dose-step-unit", children: "顆" }),
-                  ]}),
-            ]});
-          }),
-        ]}),
+          ]})
+        }),
 
-        // ── 數量資訊（保留顯示）────────────────────────────────────────────
+        // ── 數量資訊（純顯示，不可手動編輯；只能被打卡/補藥改動）──────────
         (0, _jsxRuntime.jsxs)("div", { className: "med-detail-card", children: [
           (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
             (0, _jsxRuntime.jsx)("span", { className: "label", children: "總數量" }),
-            isViewer
-              ? (0, _jsxRuntime.jsxs)("span", { className: "value", children: [total, " 顆"] })
-              : (0, _jsxRuntime.jsx)("input", {
-                  type: "number", min: 0, value: total,
-                  style: { width: 90, marginTop: 0, textAlign:"right", padding:"6px 10px" },
-                  onChange: function(e){ setTotal(e.target.value); }
-                }),
+            (0, _jsxRuntime.jsxs)("span", { className: "value", children: [total, " 顆"] }),
           ]}),
           (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
             (0, _jsxRuntime.jsx)("span", { className: "label", children: "剩餘數量" }),
-            isViewer
-              ? (0, _jsxRuntime.jsxs)("span", { className: "value", children: [rem, " 顆"] })
-              : (0, _jsxRuntime.jsx)("input", {
-                  type: "number", min: 0, value: rem,
-                  style: { width: 90, marginTop: 0, textAlign:"right", padding:"6px 10px" },
-                  onChange: function(e){ setRem(e.target.value); }
-                }),
+            (0, _jsxRuntime.jsxs)("span", { className: "value", children: [rem, " 顆"] }),
           ]}),
           (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
             (0, _jsxRuntime.jsx)("span", { className: "label", children: "預估剩餘天數" }),
             (0, _jsxRuntime.jsx)("span", { className: "value", children: est ? (est.days + " 天") : "—" }),
           ]}),
         ]}),
-
-        // ── 服藥時段（摺疊，預設收合）────────────────────────────────────
-        (0, _jsxRuntime.jsxs)("div", {
-          className: "collapsible-row",
-          onClick: function(){ setSchedOpen(!schedOpen); },
-          children: [
-            (0, _jsxRuntime.jsxs)("div", { children: [
-              (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"服藥時段" }),
-              (0, _jsxRuntime.jsx)("div", { className:"settings-sub", children: firstSchedLabel + (schedules.length > 1 ? "等 " + schedules.length + " 個時段" : "") }),
-            ]}),
-            (0, _jsxRuntime.jsx)("span", { className: "collapsible-chevron" + (schedOpen ? " open" : ""), children: "›" }),
-          ]
-        }),
-        schedOpen && !isViewer && (0, _jsxRuntime.jsx)("div", { style:{marginTop:10}, children:
-          (0, _jsxRuntime.jsx)(PeriodSelector, {
-            selected: schedules, onChange: setSchedules, periodTimes: periodTimes
-          })
-        }),
 
         // ── 補充藥品（摺疊）─────────────────────────────────────────────────
         !isViewer && (0, _jsxRuntime.jsxs)("div", {
@@ -3136,6 +3188,40 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
           }),
         ]}),
         (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:10,width:"100%"}, onClick:onClose, children:"關閉" }),
+      ]}),
+    ]}),
+  }),
+  photoMenuOpen && !isViewer && _jsxRuntime.jsx(MedPhotoActionSheet, {
+    photo: photo,
+    onClose: function(){ setPhotoMenuOpen(false); },
+    onCamera: function(){ setPhotoMenuOpen(false); if (cameraInputRef.current) cameraInputRef.current.click(); },
+    onGallery: function(){ setPhotoMenuOpen(false); if (photoInputRef.current) photoInputRef.current.click(); },
+    onRemove: removePhoto
+  })
+  ]});
+}
+
+// ── Photo action-sheet (拍照 / 從圖庫選擇 / 移除目前相片) ──────────────────
+function MedPhotoActionSheet({ photo, onClose, onCamera, onGallery, onRemove }) {
+  return (0, _jsxRuntime.jsx)("div", {
+    className: "modal-overlay",
+    style: { zIndex: 110 },
+    onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
+    children: (0, _jsxRuntime.jsxs)("div", { className: "modal", style:{maxHeight:"none"}, children: [
+      (0, _jsxRuntime.jsx)("div", { className: "modal-top", children:
+        (0, _jsxRuntime.jsx)("div", { className: "modal-handle" })
+      }),
+      (0, _jsxRuntime.jsxs)("div", { className: "modal-scroll", style:{paddingBottom:24}, children: [
+        (0, _jsxRuntime.jsx)("button", { className:"action-sheet-btn", onClick:onCamera, children:[
+          (0, _jsxRuntime.jsx)("span", {style:{fontSize:"1.2rem"}, children:"📷"}), " 拍照"
+        ]}),
+        (0, _jsxRuntime.jsx)("button", { className:"action-sheet-btn", onClick:onGallery, children:[
+          (0, _jsxRuntime.jsx)("span", {style:{fontSize:"1.2rem"}, children:"🖼️"}), " 從圖庫選擇"
+        ]}),
+        photo && (0, _jsxRuntime.jsx)("button", { className:"action-sheet-btn danger", onClick:onRemove, children:[
+          (0, _jsxRuntime.jsx)("span", {style:{fontSize:"1.2rem"}, children:"🗑️"}), " 移除目前相片"
+        ]}),
+        (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:10,width:"100%"}, onClick:onClose, children:"取消" }),
       ]}),
     ]})
   });
