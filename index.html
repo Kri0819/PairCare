@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.13 start');
+console.log('[PairCare] v11.14 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -488,6 +488,23 @@ body {
   flex-direction: column;
   background: var(--paper);
   box-shadow: 0 0 60px rgba(35,28,16,0.10);
+}
+
+/* ── Large screens (tablet / desktop): fill the viewport, no card-on-canvas ── */
+@media (min-width: 768px) {
+  .app {
+    max-width: 100%;
+    box-shadow: none;
+  }
+  .header, .main { max-width: 640px; margin-left: auto; margin-right: auto; width: 100%; }
+  .nav { max-width: 100%; }
+  .modal {
+    max-width: 100%;
+    border-radius: 0;
+  }
+  .modal-top, .modal-scroll {
+    max-width: 640px; margin-left: auto; margin-right: auto; width: 100%;
+  }
 }
 
 /* ── Onboarding ── */
