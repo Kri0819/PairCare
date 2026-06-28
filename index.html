@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.12 start');
+console.log('[PairCare] v11.13 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -623,6 +623,14 @@ label {
   width: 160px; height: 160px; border-radius: 50%;
   background: rgba(255,255,255,0.12);
 }
+.hero-date-chip {
+  position: relative; z-index: 1;
+  display: inline-block; align-self: flex-end;
+  font-family: 'DM Mono', monospace; font-size: 0.7rem; font-weight: 500;
+  color: white; background: rgba(255,255,255,0.22);
+  padding: 5px 12px; border-radius: 20px;
+  margin-bottom: 10px;
+}
 .hero-card .hero-label {
   font-size: 0.74rem; font-weight: 600; letter-spacing: 0.1em;
   opacity: 0.88; margin-bottom: 2px;
@@ -666,15 +674,6 @@ label {
 .section-label-row {
   font-size: 0.76rem; font-weight: 600; color: var(--ink-muted);
   letter-spacing: 0.1em; margin: 18px 4px 10px;
-}
-.section-label-with-date {
-  display: flex; align-items: center; justify-content: space-between;
-}
-.section-date-chip {
-  font-family: 'DM Mono', monospace; font-size: 0.7rem;
-  color: var(--ink-muted); background: white;
-  padding: 5px 12px; border-radius: 20px; flex-shrink: 0;
-  border: 1px solid var(--border); letter-spacing: 0; font-weight: 500;
 }
 .period-group { margin-bottom: 14px; }
 .period-card {
@@ -2785,6 +2784,15 @@ function DashboardPage({
           // ════════════════════════════════════════════════════════════════
           nextDoseInfo
             ? (0, _jsxRuntime.jsxs)("div", { className: "hero-card", children: [
+                (0, _jsxRuntime.jsx)("div", { className: "hero-date-chip", children:
+                  (function() {
+                    try {
+                      var d = new Date(logicalDate);
+                      var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
+                      return logicalDate + "（" + weekday + "）";
+                    } catch(e) { return logicalDate; }
+                  })()
+                }),
                 (0, _jsxRuntime.jsxs)("div", { children: [
                   (0, _jsxRuntime.jsx)("div", { className: "hero-label", children: "下一次服藥" }),
                   (0, _jsxRuntime.jsx)("div", { className: "hero-meds", children: nextDoseInfo.medNames }),
@@ -2796,7 +2804,9 @@ function DashboardPage({
                 ]}),
                 !isViewer && nextDoseInfo.isDue && (0, _jsxRuntime.jsx)("button", {
                   className: "hero-btn",
-                  onClick: function(){ markPeriodTaken(nextDoseGroup); },
+                  onClick: function(){
+                    nextDoseGroup.meds.forEach(function(item){ markItemTaken(item); });
+                  },
                   children: "立即打卡"
                 }),
               ]})
@@ -2809,18 +2819,7 @@ function DashboardPage({
           // ════════════════════════════════════════════════════════════════
           // TIME-SLOT CARDS — one card per period, icon + status chip
           // ════════════════════════════════════════════════════════════════
-          totalGroups > 0 && (0, _jsxRuntime.jsxs)("div", { className: "section-label-row section-label-with-date", children: [
-            (0, _jsxRuntime.jsx)("span", { children: "今天的服藥時段" }),
-            (0, _jsxRuntime.jsx)("span", { className: "section-date-chip", children:
-              (function() {
-                try {
-                  var d = new Date(logicalDate);
-                  var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
-                  return logicalDate + "（" + weekday + "）";
-                } catch(e) { return logicalDate; }
-              })()
-            }),
-          ]}),
+          totalGroups > 0 && (0, _jsxRuntime.jsx)("div", { className: "section-label-row", children: "今天的服藥時段" }),
 
           groups.map(function(group) {
             var allDone = group.meds.every(function(item){ var log = safeLog[item.key]; return !!(log && log.takenAt); });
