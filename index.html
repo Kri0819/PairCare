@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.11 start');
+console.log('[PairCare] v11.12 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -667,6 +667,15 @@ label {
   font-size: 0.76rem; font-weight: 600; color: var(--ink-muted);
   letter-spacing: 0.1em; margin: 18px 4px 10px;
 }
+.section-label-with-date {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.section-date-chip {
+  font-family: 'DM Mono', monospace; font-size: 0.7rem;
+  color: var(--ink-muted); background: white;
+  padding: 5px 12px; border-radius: 20px; flex-shrink: 0;
+  border: 1px solid var(--border); letter-spacing: 0; font-weight: 500;
+}
 .period-group { margin-bottom: 14px; }
 .period-card {
   background: white; border-radius: var(--radius);
@@ -712,6 +721,13 @@ label {
 .period-med-name { font-size: 0.9rem; font-weight: 500; color: var(--ink); }
 .period-med-dose { font-family: 'DM Mono', monospace; font-size: 0.76rem; color: var(--ink-muted); }
 .period-med-check { font-size: 0.95rem; flex-shrink: 0; white-space: nowrap; }
+.period-med-taken { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.btn-undo-inline {
+  padding: 4px 11px; border-radius: 999px; flex-shrink: 0;
+  background: transparent; color: var(--ink-muted); border: 1px solid var(--border);
+  font-family: 'Noto Serif TC', serif; font-size: 0.7rem; cursor: pointer;
+}
+.btn-undo-inline:active { background: var(--cream); }
 
 .period-footer {
   display: flex; align-items: center; justify-content: flex-end;
@@ -2676,35 +2692,32 @@ function DashboardPage({
   var pct = totalGroups > 0 ? Math.round(doneGroups / totalGroups * 100) : 0;
   var CIRC = 2 * Math.PI * 26;
 
-  function markPeriodTaken(group) {
+  // Per-medication take/undo — each row in a time-slot card is independent
+  function markItemTaken(item) {
     if (isViewer) return;
     var now_iso = new Date().toISOString();
     var now_hhmm = now_iso.slice(11, 16);
     try { now_hhmm = new Date().toTimeString().slice(0, 5); } catch(e) {}
+    var key = item.key, sched = item.sched, med = item.med;
     update(function(s) {
-      group.meds.forEach(function(item) {
-        var key = item.key, sched = item.sched, med = item.med;
-        s.scheduleLog[key] = {
-          takenAt: now_iso, displayTime: now_hhmm,
-          periodId: sched.periodId, medicationId: med.id,
-        };
-        var m = s.medications.find(function(mm){ return mm.id === med.id; });
-        if (m) m.remainingCount = Math.max(0, (m.remainingCount || 0) - sched.dose);
-      });
+      s.scheduleLog[key] = {
+        takenAt: now_iso, displayTime: now_hhmm,
+        periodId: sched.periodId, medicationId: med.id,
+      };
+      var m = s.medications.find(function(mm){ return mm.id === med.id; });
+      if (m) m.remainingCount = Math.max(0, (m.remainingCount || 0) - sched.dose);
     });
-    showToast("✓ " + group.label + " 已完成");
+    showToast("✓ " + med.name + " 已服用");
   }
-  function undoPeriod(group) {
+  function undoItem(item) {
     if (isViewer) return;
+    var key = item.key, sched = item.sched, med = item.med;
     update(function(s) {
-      group.meds.forEach(function(item) {
-        var key = item.key, sched = item.sched, med = item.med;
-        if (s.scheduleLog[key] && (s.scheduleLog[key].takenAt || s.scheduleLog[key].displayTime)) {
-          var m = s.medications.find(function(mm){ return mm.id === med.id; });
-          if (m) m.remainingCount = Math.min(m.totalCount, (m.remainingCount || 0) + sched.dose);
-        }
-        delete s.scheduleLog[key];
-      });
+      if (s.scheduleLog[key] && (s.scheduleLog[key].takenAt || s.scheduleLog[key].displayTime)) {
+        var m = s.medications.find(function(mm){ return mm.id === med.id; });
+        if (m) m.remainingCount = Math.min(m.totalCount, (m.remainingCount || 0) + sched.dose);
+      }
+      delete s.scheduleLog[key];
     });
     showToast("已撤銷");
   }
@@ -2757,7 +2770,6 @@ function DashboardPage({
             (0, _jsxRuntime.jsxs)("div", {
               className: "header-icons",
               children: [
-                (0, _jsxRuntime.jsx)("span", { className: "date-chip", children: logicalDate }),
                 (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: function(){ setTab("account"); }, children: Ico.user }),
               ]
             })
@@ -2797,7 +2809,18 @@ function DashboardPage({
           // ════════════════════════════════════════════════════════════════
           // TIME-SLOT CARDS — one card per period, icon + status chip
           // ════════════════════════════════════════════════════════════════
-          totalGroups > 0 && (0, _jsxRuntime.jsx)("div", { className: "section-label-row", children: "今天的服藥時段" }),
+          totalGroups > 0 && (0, _jsxRuntime.jsxs)("div", { className: "section-label-row section-label-with-date", children: [
+            (0, _jsxRuntime.jsx)("span", { children: "今天的服藥時段" }),
+            (0, _jsxRuntime.jsx)("span", { className: "section-date-chip", children:
+              (function() {
+                try {
+                  var d = new Date(logicalDate);
+                  var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
+                  return logicalDate + "（" + weekday + "）";
+                } catch(e) { return logicalDate; }
+              })()
+            }),
+          ]}),
 
           groups.map(function(group) {
             var allDone = group.meds.every(function(item){ var log = safeLog[item.key]; return !!(log && log.takenAt); });
@@ -2837,32 +2860,29 @@ function DashboardPage({
                           (0, _jsxRuntime.jsxs)("div", { className:"period-med-dose", children: [item.sched.dose, " 顆"] }),
                         ]}),
                         taken
-                          ? (0, _jsxRuntime.jsx)("div", { className:"period-med-check",
-                              children: "✅ " + (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : ""))
-                            })
+                          ? (0, _jsxRuntime.jsxs)("div", { className:"period-med-taken", children: [
+                              (0, _jsxRuntime.jsx)("span", { className:"period-med-check",
+                                children: "✅ " + (log.displayTime || (log.takenAt ? log.takenAt.slice(11,16) : ""))
+                              }),
+                              !isViewer && (0, _jsxRuntime.jsx)("button", {
+                                className: "btn-undo-inline",
+                                onClick: function(){ undoItem(item); },
+                                children: "撤銷"
+                              }),
+                            ]})
                           : isViewer
                             ? (0, _jsxRuntime.jsx)("div", { className:"period-med-check", children: "○" })
                             : (0, _jsxRuntime.jsx)("button", {
                                 className: "btn-take-period",
-                                onClick: function(){ markPeriodTaken(group); },
+                                onClick: function(){ markItemTaken(item); },
                                 children: "已服用"
                               }),
                       ]});
                     })
                   }),
-                  allDone && !isViewer && (0, _jsxRuntime.jsx)("div", { className: "period-footer done", children:
-                    (0, _jsxRuntime.jsx)("button", { className:"btn-undo", onClick: function(){ undoPeriod(group); }, children:"撤銷" })
-                  }),
                 ]}),
               ]
             });
-          }),
-
-          // ── Stock summary line (bottom of home page, after time-slot cards) ──
-          (0, _jsxRuntime.jsx)("div", {
-            className: "stock-summary-line" + (stockLow > 0 ? " warn" : ""),
-            onClick: function(){ setModal("refillCenter"); },
-            children: stockSummaryText
           }),
 
         ]
