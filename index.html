@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.14 start');
+console.log('[PairCare] v11.15 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -1028,11 +1028,40 @@ label {
 .daily-log-row {
   display: flex; align-items: center; justify-content: space-between;
   background: white; border-radius: var(--radius-sm); border: 1.5px solid var(--border);
-  padding: 13px 16px; margin-bottom: 8px; box-shadow: var(--shadow-sm);
+  padding: 13px 16px; margin-bottom: 0; box-shadow: var(--shadow-sm); cursor: pointer;
 }
+.daily-log-row.expanded { border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-bottom-color: transparent; }
 .daily-log-date { font-size: 0.88rem; font-weight: 600; color: var(--ink); }
 .daily-log-count { font-size: 0.8rem; color: var(--ink-muted); margin-left: 8px; }
 .daily-log-status { font-size: 1.05rem; }
+
+/* Expanded per-medication breakdown — plain list, no border box */
+.daily-log-detail {
+  background: var(--cream); border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 4px 16px 10px; margin-bottom: 8px;
+}
+.daily-log-detail-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 0; font-size: 0.82rem; color: var(--ink-light);
+  border-top: 1px solid rgba(35,28,16,0.06);
+}
+.daily-log-detail-row:first-child { border-top: none; }
+
+/* Range navigator (‹ 6/14-6/20 › or ‹ 2026.06 ›) */
+.log-range-nav {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  margin-bottom: 14px;
+}
+.log-range-arrow {
+  background: var(--cream); border: 1.5px solid var(--border); border-radius: 50%;
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  font-size: 1rem; color: var(--ink-light); cursor: pointer; flex-shrink: 0;
+}
+.log-range-arrow:active { background: var(--rose-pale); color: var(--rose-dark); }
+.log-range-label {
+  font-family: 'DM Mono', monospace; font-size: 0.92rem; font-weight: 600; color: var(--ink);
+  min-width: 110px;
+}
 
 /* ── Modal ── */
 .modal-overlay {
@@ -3429,6 +3458,9 @@ function buildVisitSummary(visit, getMedName) {
 // ─── Dose Log Page (服藥紀錄) ──────────────────────────────────────────────────
 // Derives daily completion stats from scheduleLog (key format: "date|medId|periodId")
 // since doseLogs[] is not currently populated by the take/undo actions.
+// ─── Dose Log Page (服藥紀錄) ──────────────────────────────────────────────────
+// Derives daily completion stats from scheduleLog (key format: "date|medId|periodId")
+// since doseLogs[] is not currently populated by the take/undo actions.
 function LogPage({
   state,
   isViewer,
@@ -3436,45 +3468,99 @@ function LogPage({
 }) {
   var safeMeds = Array.isArray(state.medications) ? state.medications : [];
   var safeLog  = (state.scheduleLog && typeof state.scheduleLog === 'object') ? state.scheduleLog : {};
-  var safeSettings = state.settings && typeof state.settings === 'object' ? state.settings : { periodTimes: {} };
   var activeMeds = safeMeds.filter(function(m){ return m && m.status === "active"; });
 
-  // Build the set of expected dose-slots for any given date (assumes today's
-  // active medication schedule applies retroactively — best available proxy
-  // since historical schedule snapshots aren't stored).
-  var expectedPerDay = 0;
-  activeMeds.forEach(function(med) {
-    expectedPerDay += (med.schedules || []).length;
-  });
+  function medName(id) {
+    var m = safeMeds.find(function(mm){ return mm.id === id; });
+    return m ? m.name : "未知藥物";
+  }
 
-  // ── Build this week's days (Sunday → Saturday) ──────────────────────────
+  // Expected dose-slots per day (today's active schedule applied retroactively —
+  // best available proxy since historical schedule snapshots aren't stored).
+  var expectedPerDay = 0;
+  activeMeds.forEach(function(med) { expectedPerDay += (med.schedules || []).length; });
+
+  // ── View mode: "week" | "month" ───────────────────────────────────────────
+  var _viewMode = useState("week");
+  var viewMode    = _viewMode[0];
+  var setViewMode = _viewMode[1];
+
+  // offset: how many weeks/months away from the current one (0 = this week/month)
+  var _offset = useState(0);
+  var offset    = _offset[0];
+  var setOffset = _offset[1];
+
+  // Which daily row is expanded (date string, or null)
+  var _expandedDate = useState(null);
+  var expandedDate    = _expandedDate[0];
+  var setExpandedDate = _expandedDate[1];
+
+  // Reset offset when switching modes, so toggling week<->month starts at "current"
+  function switchMode(mode) {
+    setViewMode(mode);
+    setOffset(0);
+    setExpandedDate(null);
+  }
+
   function dateOffset(base, n) {
     var d = new Date(base);
     d.setDate(d.getDate() + n);
     return d.toISOString().slice(0, 10);
   }
-  var now = new Date();
-  var todayDow = now.getDay(); // 0 = Sunday
-  var weekStart = dateOffset(now, -todayDow); // this week's Sunday
 
-  var days = [];
-  for (var i = 0; i < 7; i++) {
-    var dateStr = dateOffset(weekStart, i);
-    var doneCount = 0;
-    Object.keys(safeLog).forEach(function(key) {
-      if (key.indexOf(dateStr + "|") === 0) {
-        var entry = safeLog[key];
-        if (entry && (entry.takenAt || entry.displayTime)) doneCount++;
-      }
-    });
-    var weekday = ["日","一","二","三","四","五","六"][new Date(dateStr).getDay()];
-    days.push({ date: dateStr, weekday: weekday, done: doneCount, total: expectedPerDay });
+  var today = new Date();
+
+  // ── Compute the date range for the current view + offset ─────────────────
+  var rangeStart, rangeEnd, rangeLabel, days;
+
+  if (viewMode === "week") {
+    var todayDow = today.getDay(); // 0 = Sunday
+    var thisWeekStart = dateOffset(today.toISOString().slice(0,10), -todayDow);
+    rangeStart = dateOffset(thisWeekStart, offset * 7);
+    rangeEnd   = dateOffset(rangeStart, 6);
+    days = [];
+    for (var i = 0; i < 7; i++) days.push(dateOffset(rangeStart, i));
+    var fmtShort = function(ds) { var d = new Date(ds); return (d.getMonth()+1) + "/" + d.getDate(); };
+    rangeLabel = fmtShort(rangeStart) + " - " + fmtShort(rangeEnd);
+  } else {
+    // Month mode: compute first/last day of the target month
+    var baseMonth = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    var y = baseMonth.getFullYear(), mo = baseMonth.getMonth();
+    var firstDay = new Date(y, mo, 1);
+    var lastDay  = new Date(y, mo + 1, 0);
+    rangeStart = firstDay.toISOString().slice(0,10);
+    rangeEnd   = lastDay.toISOString().slice(0,10);
+    days = [];
+    var cursor = new Date(firstDay);
+    while (cursor <= lastDay) {
+      days.push(cursor.toISOString().slice(0,10));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    rangeLabel = y + "." + String(mo+1).padStart(2,"0");
   }
 
-  // ── Weekly completion ring ────────────────────────────────────────────────
-  var weekDone  = days.reduce(function(s, d){ return s + d.done; }, 0);
-  var weekTotal = days.reduce(function(s, d){ return s + d.total; }, 0);
-  var weekPct = weekTotal > 0 ? Math.round(weekDone / weekTotal * 100) : 0;
+  // ── Per-day stats + per-medication breakdown ──────────────────────────────
+  var dayStats = days.map(function(dateStr) {
+    var doneCount = 0;
+    var perMed = {}; // medId -> { done, total }
+    Object.keys(safeLog).forEach(function(key) {
+      if (key.indexOf(dateStr + "|") !== 0) return;
+      var parts = key.split("|");
+      var medId = parts[1];
+      var entry = safeLog[key];
+      var taken = entry && (entry.takenAt || entry.displayTime);
+      if (!perMed[medId]) perMed[medId] = { done: 0, total: 0 };
+      perMed[medId].total += 1;
+      if (taken) { perMed[medId].done += 1; doneCount++; }
+    });
+    var weekday = ["日","一","二","三","四","五","六"][new Date(dateStr).getDay()];
+    return { date: dateStr, weekday: weekday, done: doneCount, total: expectedPerDay, perMed: perMed };
+  });
+
+  // ── Completion ring for the visible range ─────────────────────────────────
+  var rangeDone  = dayStats.reduce(function(s, d){ return s + d.done; }, 0);
+  var rangeTotal = dayStats.reduce(function(s, d){ return s + d.total; }, 0);
+  var rangePct = rangeTotal > 0 ? Math.round(rangeDone / rangeTotal * 100) : 0;
   var RING_CIRC = 2 * Math.PI * 48;
 
   function fmtDate(dateStr) {
@@ -3495,34 +3581,85 @@ function LogPage({
         className: "main",
         children: [
 
-          // ── Weekly completion ring ──────────────────────────────────────
+          // ── Week / Month toggle ──────────────────────────────────────────
+          (0, _jsxRuntime.jsxs)("div", { className: "list-tab-row", children: [
+            (0, _jsxRuntime.jsx)("button", {
+              className: "list-tab" + (viewMode === "week" ? " active" : ""),
+              onClick: function(){ switchMode("week"); },
+              children: "週"
+            }),
+            (0, _jsxRuntime.jsx)("button", {
+              className: "list-tab" + (viewMode === "month" ? " active" : ""),
+              onClick: function(){ switchMode("month"); },
+              children: "月"
+            }),
+          ]}),
+
+          // ── Completion ring (recalculated per range) ─────────────────────
           (0, _jsxRuntime.jsxs)("div", { className: "log-ring-card", children: [
+
+            // Range navigator: ‹ range-label ›
+            (0, _jsxRuntime.jsxs)("div", { className: "log-range-nav", children: [
+              (0, _jsxRuntime.jsx)("button", {
+                className: "log-range-arrow",
+                onClick: function(){ setOffset(offset - 1); setExpandedDate(null); },
+                children: "‹"
+              }),
+              (0, _jsxRuntime.jsx)("span", { className: "log-range-label", children: rangeLabel }),
+              (0, _jsxRuntime.jsx)("button", {
+                className: "log-range-arrow",
+                onClick: function(){ setOffset(offset + 1); setExpandedDate(null); },
+                children: "›"
+              }),
+            ]}),
+
             (0, _jsxRuntime.jsxs)("div", { className: "log-ring-wrap", children: [
               (0, _jsxRuntime.jsxs)("svg", { children: [
                 (0, _jsxRuntime.jsx)("circle", { className: "track", cx: "55", cy: "55", r: "48" }),
                 (0, _jsxRuntime.jsx)("circle", {
                   className: "fill", cx: "55", cy: "55", r: "48",
                   strokeDasharray: RING_CIRC,
-                  strokeDashoffset: RING_CIRC - RING_CIRC * weekPct / 100
+                  strokeDashoffset: RING_CIRC - RING_CIRC * rangePct / 100
                 }),
               ]}),
-              (0, _jsxRuntime.jsxs)("div", { className: "log-ring-center", children: [weekPct, "%"] }),
+              (0, _jsxRuntime.jsxs)("div", { className: "log-ring-center", children: [rangePct, "%"] }),
             ]}),
-            (0, _jsxRuntime.jsx)("div", { className: "log-ring-label", children: "本週完成率" }),
+            (0, _jsxRuntime.jsx)("div", { className: "log-ring-label", children: viewMode === "week" ? "本週完成率" : "本月完成率" }),
           ]}),
 
           (0, _jsxRuntime.jsx)("div", { className: "section-label-row", children: "每日紀錄" }),
 
-          // ── Daily list ───────────────────────────────────────────────────
-          days.map(function(d) {
+          // ── Daily list (click to expand per-medication breakdown) ────────
+          dayStats.map(function(d) {
             var allDone = d.total > 0 && d.done >= d.total;
-            return (0, _jsxRuntime.jsxs)("div", { className: "daily-log-row", key: d.date, children: [
-              (0, _jsxRuntime.jsxs)("div", { children: [
-                (0, _jsxRuntime.jsxs)("span", { className: "daily-log-date", children: [fmtDate(d.date), " （", d.weekday, "）"] }),
-                (0, _jsxRuntime.jsxs)("span", { className: "daily-log-count", children: [d.done, " / ", d.total, " 次"] }),
-              ]}),
-              (0, _jsxRuntime.jsx)("span", { className: "daily-log-status",
-                children: d.total === 0 ? "" : allDone ? "✅" : (d.done > 0 ? "🟡" : "⚪")
+            var isExpanded = expandedDate === d.date;
+            var medIds = Object.keys(d.perMed);
+            return (0, _jsxRuntime.jsxs)("div", { key: d.date, children: [
+              (0, _jsxRuntime.jsxs)("div", {
+                className: "daily-log-row" + (isExpanded ? " expanded" : ""),
+                onClick: function(){ setExpandedDate(isExpanded ? null : d.date); },
+                children: [
+                  (0, _jsxRuntime.jsxs)("div", { children: [
+                    (0, _jsxRuntime.jsxs)("span", { className: "daily-log-date", children: [fmtDate(d.date), " （", d.weekday, "）"] }),
+                    (0, _jsxRuntime.jsxs)("span", { className: "daily-log-count", children: [d.done, " / ", d.total, " 次"] }),
+                  ]}),
+                  (0, _jsxRuntime.jsx)("span", { className: "daily-log-status",
+                    children: d.total === 0 ? "" : allDone ? "✅" : (d.done > 0 ? "🟡" : "⚪")
+                  }),
+                ]
+              }),
+              // Expanded breakdown — no border box, just a plain indented list
+              isExpanded && medIds.length > 0 && (0, _jsxRuntime.jsx)("div", { className: "daily-log-detail", children:
+                medIds.map(function(medId) {
+                  var stat = d.perMed[medId];
+                  return (0, _jsxRuntime.jsxs)("div", { className: "daily-log-detail-row", key: medId, children: [
+                    (0, _jsxRuntime.jsx)("span", { children: medName(medId) }),
+                    (0, _jsxRuntime.jsxs)("span", { children: [stat.done, "/", stat.total] }),
+                  ]});
+                })
+              }),
+              isExpanded && medIds.length === 0 && (0, _jsxRuntime.jsx)("div", { className: "daily-log-detail", children:
+                (0, _jsxRuntime.jsx)("div", { className: "daily-log-detail-row", style:{color:"var(--ink-muted)"}, children: "這天沒有服藥紀錄" })
               }),
             ]});
           }),
@@ -3532,6 +3669,7 @@ function LogPage({
     ]
   });
 }
+
 
 function VisitsPage({
   state,
