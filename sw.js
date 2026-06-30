@@ -1,5 +1,5 @@
-/* PairCare｜陪一刻 — Service Worker v10 */
-var CACHE  = 'PairCare-v11.15';
+/* PairCare｜陪一刻 — Service Worker v11.16 */
+var CACHE  = 'PairCare-v11.16';
 var ASSETS = ['/', '/index.html', '/manifest.json',
               '/icons/icon-192.png', '/icons/icon-512.png'];
 
