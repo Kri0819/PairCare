@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.16 start');
+console.log('[PairCare] v11.17 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -1035,10 +1035,21 @@ label {
 .daily-log-count { font-size: 0.8rem; color: var(--ink-muted); margin-left: 8px; }
 .daily-log-status { font-size: 1.05rem; }
 
-/* Expanded per-medication breakdown — plain list, no border box */
+/* Circular checkmark status dot — replaces emoji (✅🟡⚪) */
+.log-status-dot {
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--border); background: transparent; color: transparent;
+  font-size: 0.7rem; font-weight: 700;
+}
+.log-status-dot.done {
+  background: var(--sage); border-color: var(--sage); color: white;
+}
+
+/* Expanded per-medication breakdown — same bg as page, inset on both sides */
 .daily-log-detail {
-  background: var(--cream); border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  padding: 4px 16px 10px; margin-bottom: 8px;
+  background: transparent; border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 4px 28px 10px; margin-bottom: 8px;
 }
 .daily-log-detail-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -3555,17 +3566,24 @@ function LogPage({
   }
 
   // ── Per-day stats + per-medication breakdown ──────────────────────────────
+  // perMed is seeded from today's active medication schedules (not just logged
+  // keys), so every medication always shows up — even with 0/1 if never logged.
   var dayStats = days.map(function(dateStr) {
     var doneCount = 0;
     var perMed = {}; // medId -> { done, total }
+    activeMeds.forEach(function(med) {
+      (med.schedules || []).forEach(function() {
+        if (!perMed[med.id]) perMed[med.id] = { done: 0, total: 0 };
+        perMed[med.id].total += 1;
+      });
+    });
     Object.keys(safeLog).forEach(function(key) {
       if (key.indexOf(dateStr + "|") !== 0) return;
       var parts = key.split("|");
       var medId = parts[1];
       var entry = safeLog[key];
       var taken = entry && (entry.takenAt || entry.displayTime);
-      if (!perMed[medId]) perMed[medId] = { done: 0, total: 0 };
-      perMed[medId].total += 1;
+      if (!perMed[medId]) perMed[medId] = { done: 0, total: 0 }; // e.g. paused-since med still logged
       if (taken) { perMed[medId].done += 1; doneCount++; }
     });
     var weekday = ["日","一","二","三","四","五","六"][parseLocalDate(dateStr).getDay()];
@@ -3658,8 +3676,9 @@ function LogPage({
                     (0, _jsxRuntime.jsxs)("span", { className: "daily-log-date", children: [fmtDate(d.date), " （", d.weekday, "）"] }),
                     (0, _jsxRuntime.jsxs)("span", { className: "daily-log-count", children: [d.done, " / ", d.total, " 次"] }),
                   ]}),
-                  (0, _jsxRuntime.jsx)("span", { className: "daily-log-status",
-                    children: d.total === 0 ? "" : allDone ? "✅" : (d.done > 0 ? "🟡" : "⚪")
+                  d.total > 0 && (0, _jsxRuntime.jsx)("span", {
+                    className: "log-status-dot" + (allDone ? " done" : ""),
+                    children: allDone ? "✓" : ""
                   }),
                 ]
               }),
