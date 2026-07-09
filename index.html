@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v11.17 start');
+console.log('[PairCare] v12.0 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -102,6 +102,38 @@ function getSupabase() {
     console.log('[PairCare] Supabase ready');
   } catch(e) { console.error('[PairCare] Supabase init:', e); }
   return _sbClient;
+}
+
+// ── Cross-device sync: pair_data table, keyed by pairId ──────────────────────
+// One row per pair, entire app-relevant state stored as JSONB. This is how
+// data actually becomes shared across devices — everything before this was
+// localStorage-only and NEVER left the device.
+var SYNC_FIELDS = ["pair", "medications", "doseLogs", "scheduleLog", "doctorVisits", "settings"];
+
+function pullPairData(pairId) {
+  var sb = getSupabase();
+  if (!sb || !pairId) return Promise.resolve(null);
+  return sb.from("pair_data")
+    .select("data")
+    .eq("pair_id", pairId)
+    .maybeSingle()
+    .then(function(res) {
+      if (res.error) { console.error('[PairCare] pull error:', res.error); return null; }
+      return (res.data && res.data.data) || null;
+    })
+    .catch(function(e) { console.error('[PairCare] pull exception:', e); return null; });
+}
+
+function pushPairData(pairId, stateSlice, userId) {
+  var sb = getSupabase();
+  if (!sb || !pairId) return Promise.resolve(false);
+  return sb.from("pair_data")
+    .upsert({ pair_id: pairId, data: stateSlice, updated_by: userId || null }, { onConflict: "pair_id" })
+    .then(function(res) {
+      if (res.error) { console.error('[PairCare] push error:', res.error); return false; }
+      return true;
+    })
+    .catch(function(e) { console.error('[PairCare] push exception:', e); return false; });
 }
 
 // ── 1. CONSTANTS ─────────────────────────────────────────────────────────────
@@ -640,17 +672,19 @@ label {
   width: 160px; height: 160px; border-radius: 50%;
   background: rgba(255,255,255,0.12);
 }
-.hero-date-chip {
+.hero-top-row {
   position: relative; z-index: 1;
-  display: inline-block; align-self: flex-end;
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.hero-date-chip {
   font-family: 'DM Mono', monospace; font-size: 0.7rem; font-weight: 500;
   color: white; background: rgba(255,255,255,0.22);
-  padding: 5px 12px; border-radius: 20px;
-  margin-bottom: 10px;
+  padding: 5px 12px; border-radius: 20px; flex-shrink: 0;
 }
 .hero-card .hero-label {
   font-size: 0.74rem; font-weight: 600; letter-spacing: 0.1em;
-  opacity: 0.88; margin-bottom: 2px;
+  opacity: 0.88; margin-bottom: 0;
 }
 .hero-card .hero-meds {
   font-size: 1.18rem; font-weight: 700; line-height: 1.35;
@@ -1488,6 +1522,9 @@ window.App = function App() {
   })());
   var lastSavedRef = useRef(null);
   var authSubRef   = useRef(null);
+  var pulledForPairRef = useRef(null); // which pairId we've already pulled remote data for
+  var pushTimerRef     = useRef(null); // debounce timer for pushing to Supabase
+  var lastPushedRef    = useRef(null); // last-pushed JSON, to skip redundant writes
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   var showToast = useCallback(function(msg) {
@@ -1524,6 +1561,29 @@ window.App = function App() {
       role:   (savedProfile && savedProfile.role)   || null,
       pairId: (savedProfile && savedProfile.pairId) || null,
     };
+  }
+
+  // ── Cloud profile recovery ────────────────────────────────────────────────
+  // Fixes "asked to re-register on every new device/browser": if this device's
+  // localStorage has no role/pairId for this account, search Supabase for a
+  // pair_data row where THIS user's auth uid is already the patientId or
+  // supporterId — i.e. they set up PairCare somewhere else already.
+  function recoverProfileFromCloud(uid) {
+    var sb = getSupabase();
+    if (!sb || !uid) return Promise.resolve(null);
+    return sb.from("pair_data")
+      .select("pair_id, data")
+      .or("data->pair->>patientId.eq." + uid + ",data->pair->>supporterId.eq." + uid)
+      .limit(1)
+      .then(function(res) {
+        if (res.error) { console.error('[PairCare] cloud recovery error:', res.error); return null; }
+        var row = res.data && res.data[0];
+        if (!row || !row.data || !row.data.pair) return null;
+        var pair = row.data.pair;
+        var role = pair.patientId === uid ? "patient" : "supporter";
+        return { pairId: pair.id, role: role, remote: row.data };
+      })
+      .catch(function(e) { console.error('[PairCare] cloud recovery exception:', e); return null; });
   }
 
   // ── Auth: restoreSession + onAuthStateChange ──────────────────────────────
@@ -1576,6 +1636,35 @@ window.App = function App() {
           }
           return next;
         });
+
+        // If this device has no role/pairId for this account (fresh browser,
+        // cleared cache, new device...), check Supabase for an existing pair
+        // before falling back to the "choose your role" screen.
+        var needsRecovery = !(saved && saved.role && saved.pairId);
+        if (needsRecovery) {
+          recoverProfileFromCloud(session.user.id).then(function(found) {
+            if (!found) return; // genuinely new user — normal onboarding proceeds
+            console.log('[PairCare] Recovered existing profile from cloud:', found.role, found.pairId);
+            setState(function(prev) {
+              var next2 = JSON.parse(JSON.stringify(prev));
+              if (!next2.user) next2.user = {};
+              next2.user.role   = found.role;
+              next2.user.pairId = found.pairId;
+              if (!next2.user.name) {
+                next2.user.name = session.user.email ? session.user.email.split("@")[0] : "";
+              }
+              // Seed the synced fields directly too, so there's no flash of
+              // "empty state" before the normal pull effect runs.
+              SYNC_FIELDS.forEach(function(field) {
+                if (found.remote[field] !== undefined) next2[field] = found.remote[field];
+              });
+              return next2;
+            });
+            try { localStorage.setItem(STORAGE_KEY + "_user", JSON.stringify({
+              id: session.user.id, email: session.user.email, role: found.role, pairId: found.pairId
+            })); } catch(e) {}
+          });
+        }
       } else {
         console.log('[PairCare] No active session');
       }
@@ -1632,7 +1721,58 @@ window.App = function App() {
     };
   }, []); // run once on mount
 
-  // ── Persist state ────────────────────────────────────────────────────────
+  // ── Cross-device sync: pull ───────────────────────────────────────────────
+  // Fires whenever we learn a pairId (login, pair created/joined, or a device
+  // switch). Server data is treated as authoritative on pull — this is what
+  // makes multi-device actually work, since previously nothing left the device.
+  useEffect(function() {
+    var pairId = state.user && state.user.pairId;
+    if (!authReady || !pairId) return;
+    if (pulledForPairRef.current === pairId) return; // already pulled for this pair this session
+    pulledForPairRef.current = pairId;
+
+    pullPairData(pairId).then(function(remote) {
+      if (!remote) {
+        console.log('[PairCare] No remote data yet for pair', pairId, '— this device will seed it');
+        return;
+      }
+      console.log('[PairCare] Pulled remote data for pair', pairId);
+      setState(function(prev) {
+        var next = JSON.parse(JSON.stringify(prev));
+        SYNC_FIELDS.forEach(function(field) {
+          if (remote[field] !== undefined) next[field] = remote[field];
+        });
+        return next;
+      });
+    });
+  }, [state.user && state.user.pairId, authReady]);
+
+  // ── Cross-device sync: push (debounced) ───────────────────────────────────
+  useEffect(function() {
+    var pairId = state.user && state.user.pairId;
+    if (!authReady || !pairId) return;
+    // Don't push until this device has completed its initial pull for this
+    // pair — otherwise a fresh device could overwrite existing remote data
+    // with its (empty) local state before the pull finishes.
+    if (pulledForPairRef.current !== pairId) return;
+
+    var slice = {};
+    SYNC_FIELDS.forEach(function(field) { slice[field] = state[field]; });
+    var sliceJSON = JSON.stringify(slice);
+    if (sliceJSON === lastPushedRef.current) return;
+
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(function() {
+      lastPushedRef.current = sliceJSON;
+      pushPairData(pairId, slice, state.user && state.user.id).then(function(ok) {
+        if (ok) console.log('[PairCare] Synced to cloud for pair', pairId);
+      });
+    }, 1200); // debounce so rapid taps (dose check-ins) don't spam writes
+
+    return function() { if (pushTimerRef.current) clearTimeout(pushTimerRef.current); };
+  }, [state.pair, state.medications, state.doseLogs, state.scheduleLog, state.doctorVisits, state.settings, authReady]);
+
+  // ── Persist state (local cache — kept as offline fallback) ────────────────
   useEffect(function() {
     if (!authReady) return;
     var s = JSON.stringify(state);
@@ -2167,45 +2307,70 @@ function PairSetupFlow(props) {
     showToast("✓ 已建立，可稍後邀請陪同者");
   }
 
-  // Enter partner's invite code to join their pair
+  var _joining = useState(false); var joining = _joining[0]; var setJoining = _joining[1];
+
+  // Enter partner's invite code to join their pair.
+  // Looks up Supabase (cross-device) FIRST, falls back to local-only for
+  // offline / no-Supabase scenarios.
   function joinByCode() {
     var code = inputCode.trim().toUpperCase();
     if (code.length < 4) { setJoinErr("請輸入至少 4 位邀請碼"); return; }
     setJoinErr("");
+    setJoining(true);
 
-    // Look for matching pair in localStorage
-    try {
-      var stored = safeJSON(localStorage.getItem(STORAGE_KEY));
-      var ep = stored && stored.pair;
-      if (ep && ep.inviteCode === code) {
-        // Found — join this pair and copy all its data
+    var sb = getSupabase();
+    var lookup = sb
+      ? sb.from("pair_data")
+          .select("pair_id, data")
+          .filter("data->pair->>inviteCode", "eq", code)
+          .limit(1)
+          .then(function(res) {
+            if (res.error) { console.error('[PairCare] invite lookup error:', res.error); return null; }
+            return (res.data && res.data[0]) || null;
+          })
+          .catch(function(e) { console.error('[PairCare] invite lookup exception:', e); return null; })
+      : Promise.resolve(null);
+
+    lookup.then(function(row) {
+      setJoining(false);
+
+      if (row && row.data && row.data.pair) {
+        // Found on Supabase — this is the real cross-device path
+        var remotePair = row.data.pair;
         update(function(s) {
-          s.pair = Object.assign({}, ep, {
-            supporterId: user.id,
-            locked: true
-          });
-          if (s.user) s.user.pairId = ep.id;
-          // Share the paired user's data
-          if (stored.medications  && stored.medications.length)   s.medications  = stored.medications;
-          if (stored.scheduleLog)                                  s.scheduleLog  = stored.scheduleLog;
-          if (stored.doseLogs     && stored.doseLogs.length)       s.doseLogs     = stored.doseLogs;
-          if (stored.doctorVisits && stored.doctorVisits.length)   s.doctorVisits = stored.doctorVisits;
+          s.pair = Object.assign({}, remotePair, { supporterId: user.id, locked: true });
+          if (s.user) s.user.pairId = remotePair.id;
+          if (row.data.medications)   s.medications  = row.data.medications;
+          if (row.data.scheduleLog)   s.scheduleLog   = row.data.scheduleLog;
+          if (row.data.doseLogs)      s.doseLogs      = row.data.doseLogs;
+          if (row.data.doctorVisits)  s.doctorVisits  = row.data.doctorVisits;
+          if (row.data.settings)      s.settings      = row.data.settings;
         });
         showToast("✓ 已成功綁定，共用同一份紀錄");
         return;
       }
-    } catch(e) {}
 
-    // Code not found locally — store as pending (partner hasn't set up yet)
-    var pairId = uid();
-    update(function(s) {
-      s.pair = {
-        id: pairId, patientId: null, supporterId: user.id,
-        inviteCode: code, locked: false, createdAt: new Date().toISOString()
-      };
-      if (s.user) s.user.pairId = pairId;
+      // Fallback: check same-device localStorage (offline / no-Supabase case)
+      try {
+        var stored = safeJSON(localStorage.getItem(STORAGE_KEY));
+        var ep = stored && stored.pair;
+        if (ep && ep.inviteCode === code) {
+          update(function(s) {
+            s.pair = Object.assign({}, ep, { supporterId: user.id, locked: true });
+            if (s.user) s.user.pairId = ep.id;
+            if (stored.medications)  s.medications  = stored.medications;
+            if (stored.scheduleLog)  s.scheduleLog  = stored.scheduleLog;
+            if (stored.doseLogs)     s.doseLogs     = stored.doseLogs;
+            if (stored.doctorVisits) s.doctorVisits = stored.doctorVisits;
+          });
+          showToast("✓ 已成功綁定，共用同一份紀錄");
+          return;
+        }
+      } catch(e) {}
+
+      // Truly not found anywhere — record as pending
+      setJoinErr("找不到這個邀請碼，請確認對方已建立配對");
     });
-    showToast("✓ 邀請碼已記錄，等待對方確認");
   }
 
   return _jsxRuntime.jsxs("div", { className: "app", children: [
@@ -2257,7 +2422,8 @@ function PairSetupFlow(props) {
         _jsxRuntime.jsx("button", {
           className:"btn btn-primary",
           onClick: joinByCode,
-          children:"綁定"
+          disabled: joining,
+          children: joining ? "查詢中…" : "綁定"
         }),
         _jsxRuntime.jsx("button", {
           className:"btn btn-secondary",
@@ -2841,17 +3007,19 @@ function DashboardPage({
           // ════════════════════════════════════════════════════════════════
           nextDoseInfo
             ? (0, _jsxRuntime.jsxs)("div", { className: "hero-card", children: [
-                (0, _jsxRuntime.jsx)("div", { className: "hero-date-chip", children:
-                  (function() {
-                    try {
-                      var d = new Date(logicalDate);
-                      var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
-                      return logicalDate + "（" + weekday + "）";
-                    } catch(e) { return logicalDate; }
-                  })()
-                }),
-                (0, _jsxRuntime.jsxs)("div", { children: [
+                (0, _jsxRuntime.jsxs)("div", { className: "hero-top-row", children: [
                   (0, _jsxRuntime.jsx)("div", { className: "hero-label", children: "下一次服藥" }),
+                  (0, _jsxRuntime.jsx)("div", { className: "hero-date-chip", children:
+                    (function() {
+                      try {
+                        var d = new Date(logicalDate);
+                        var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
+                        return logicalDate + "（" + weekday + "）";
+                      } catch(e) { return logicalDate; }
+                    })()
+                  }),
+                ]}),
+                (0, _jsxRuntime.jsxs)("div", { children: [
                   (0, _jsxRuntime.jsx)("div", { className: "hero-meds", children: nextDoseInfo.medNames }),
                   (0, _jsxRuntime.jsxs)("div", { className: "hero-time-row", children: [
                     (0, _jsxRuntime.jsx)("span", { className: "hero-time", children: nextDoseGroup.time }),
