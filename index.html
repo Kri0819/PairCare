@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v12.0 start');
+console.log('[PairCare] v12.1 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -2039,12 +2039,13 @@ window.App = function App() {
       }),
     ]}),
 
-    tab !== "account" && _jsxRuntime.jsx("nav", { className: "nav", children:
+    _jsxRuntime.jsx("nav", { className: "nav", children:
       [
-        { id:"today",  label:"陪伴首頁", icon:Ico.today  },
-        { id:"meds",   label:"藥物清單", icon:Ico.meds   },
-        { id:"visits", label:"看診紀錄", icon:Ico.visits },
-        { id:"log",    label:"服藥紀錄", icon:Ico.log    },
+        { id:"today",   label:"陪伴首頁", icon:Ico.today  },
+        { id:"meds",    label:"藥物清單", icon:Ico.meds   },
+        { id:"visits",  label:"看診紀錄", icon:Ico.visits },
+        { id:"log",     label:"服藥紀錄", icon:Ico.log    },
+        { id:"account", label:"個人中心", icon:Ico.user   },
       ].map(function(item) {
         return _jsxRuntime.jsxs("button", {
           key: item.id,
@@ -2641,18 +2642,9 @@ function AccountCenterPage(props) {
   return (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, { children: [
     (0, _jsxRuntime.jsx)("div", {
       className: "header",
-      children: (0, _jsxRuntime.jsxs)("div", { className: "header-row", children: [
-        (0, _jsxRuntime.jsx)("button", {
-          className: "btn-icon", onClick: onBack,
-          children: (0, _jsxRuntime.jsx)("svg", {
-            viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:"2",
-            style:{width:20,height:20},
-            children: (0, _jsxRuntime.jsx)("path", { d:"M15 18l-6-6 6-6" })
-          })
-        }),
-        (0, _jsxRuntime.jsx)("h2", { children: "個人中心" }),
-        (0, _jsxRuntime.jsx)("div", { style:{width:38} }), // spacer to balance the back button
-      ]})
+      children: (0, _jsxRuntime.jsx)("div", { className: "header-row", children:
+        (0, _jsxRuntime.jsx)("h2", { children: "個人中心" })
+      })
     }),
     (0, _jsxRuntime.jsxs)("div", { className: "main", children: [
 
@@ -2985,17 +2977,9 @@ function DashboardPage({
     children: [
       (0, _jsxRuntime.jsx)("div", {
         className: "header",
-        children: (0, _jsxRuntime.jsxs)("div", {
+        children: (0, _jsxRuntime.jsx)("div", {
           className: "header-row",
-          children: [
-            (0, _jsxRuntime.jsx)("h2", { children: "陪一刻" }),
-            (0, _jsxRuntime.jsxs)("div", {
-              className: "header-icons",
-              children: [
-                (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: function(){ setTab("account"); }, children: Ico.user }),
-              ]
-            })
-          ]
+          children: (0, _jsxRuntime.jsx)("h2", { children: "陪一刻" })
         })
       }),
       (0, _jsxRuntime.jsxs)("div", {
