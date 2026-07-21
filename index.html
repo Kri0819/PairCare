@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v12.1 start');
+console.log('[PairCare] v12.2 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -640,6 +640,16 @@ label {
   border: 1px solid var(--border);
 }
 .header-icons { display: flex; gap: 8px; }
+
+/* ── Sticky top block ── */
+/* Sits between .header and .main as its own flex child, so it never
+   scrolls away — used for the home page Hero Card and the log page's
+   week/month toggle + completion ring. */
+.sticky-top-block {
+  flex-shrink: 0;
+  padding: 8px 18px 0;
+  background: var(--paper);
+}
 
 /* ── Main ── */
 .main { flex: 1; overflow-y: auto; padding: 8px 18px 18px; padding-bottom: 96px; }
@@ -2982,48 +2992,52 @@ function DashboardPage({
           children: (0, _jsxRuntime.jsx)("h2", { children: "陪一刻" })
         })
       }),
+
+      // ════════════════════════════════════════════════════════════════════
+      // HERO CARD — pinned to the top alongside the header, doesn't scroll away
+      // ════════════════════════════════════════════════════════════════════
+      (0, _jsxRuntime.jsx)("div", {
+        className: "sticky-top-block",
+        children: nextDoseInfo
+          ? (0, _jsxRuntime.jsxs)("div", { className: "hero-card", children: [
+              (0, _jsxRuntime.jsxs)("div", { className: "hero-top-row", children: [
+                (0, _jsxRuntime.jsx)("div", { className: "hero-label", children: "下一次服藥" }),
+                (0, _jsxRuntime.jsx)("div", { className: "hero-date-chip", children:
+                  (function() {
+                    try {
+                      var d = new Date(logicalDate);
+                      var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
+                      return logicalDate + "（" + weekday + "）";
+                    } catch(e) { return logicalDate; }
+                  })()
+                }),
+              ]}),
+              (0, _jsxRuntime.jsxs)("div", { children: [
+                (0, _jsxRuntime.jsx)("div", { className: "hero-meds", children: nextDoseInfo.medNames }),
+                (0, _jsxRuntime.jsxs)("div", { className: "hero-time-row", children: [
+                  (0, _jsxRuntime.jsx)("span", { className: "hero-time", children: nextDoseGroup.time }),
+                  (0, _jsxRuntime.jsx)("span", { className: "hero-period", children: nextDoseGroup.label }),
+                ]}),
+                (0, _jsxRuntime.jsx)("div", { className: "hero-countdown", children: nextDoseInfo.countdownStr }),
+              ]}),
+              !isViewer && nextDoseInfo.isDue && (0, _jsxRuntime.jsx)("button", {
+                className: "hero-btn",
+                onClick: function(){
+                  nextDoseGroup.meds.forEach(function(item){ markItemTaken(item); });
+                },
+                children: "立即打卡"
+              }),
+            ]})
+          : (0, _jsxRuntime.jsxs)("div", { className: "hero-card hero-empty", children: [
+              (0, _jsxRuntime.jsx)("div", { className: "hero-emoji", children: "🌿" }),
+              (0, _jsxRuntime.jsx)("div", { className: "hero-empty-text",
+                children: totalGroups === 0 ? "還沒有設定藥物時程" : "今天的藥都吃完了" }),
+            ]})
+      }),
+
       (0, _jsxRuntime.jsxs)("div", {
         className: "main",
         children: [
-
-          // ════════════════════════════════════════════════════════════════
-          // HERO CARD — the dominant visual element: "what's next"
-          // ════════════════════════════════════════════════════════════════
-          nextDoseInfo
-            ? (0, _jsxRuntime.jsxs)("div", { className: "hero-card", children: [
-                (0, _jsxRuntime.jsxs)("div", { className: "hero-top-row", children: [
-                  (0, _jsxRuntime.jsx)("div", { className: "hero-label", children: "下一次服藥" }),
-                  (0, _jsxRuntime.jsx)("div", { className: "hero-date-chip", children:
-                    (function() {
-                      try {
-                        var d = new Date(logicalDate);
-                        var weekday = ["日","一","二","三","四","五","六"][d.getDay()];
-                        return logicalDate + "（" + weekday + "）";
-                      } catch(e) { return logicalDate; }
-                    })()
-                  }),
-                ]}),
-                (0, _jsxRuntime.jsxs)("div", { children: [
-                  (0, _jsxRuntime.jsx)("div", { className: "hero-meds", children: nextDoseInfo.medNames }),
-                  (0, _jsxRuntime.jsxs)("div", { className: "hero-time-row", children: [
-                    (0, _jsxRuntime.jsx)("span", { className: "hero-time", children: nextDoseGroup.time }),
-                    (0, _jsxRuntime.jsx)("span", { className: "hero-period", children: nextDoseGroup.label }),
-                  ]}),
-                  (0, _jsxRuntime.jsx)("div", { className: "hero-countdown", children: nextDoseInfo.countdownStr }),
-                ]}),
-                !isViewer && nextDoseInfo.isDue && (0, _jsxRuntime.jsx)("button", {
-                  className: "hero-btn",
-                  onClick: function(){
-                    nextDoseGroup.meds.forEach(function(item){ markItemTaken(item); });
-                  },
-                  children: "立即打卡"
-                }),
-              ]})
-            : (0, _jsxRuntime.jsxs)("div", { className: "hero-card hero-empty", children: [
-                (0, _jsxRuntime.jsx)("div", { className: "hero-emoji", children: "🌿" }),
-                (0, _jsxRuntime.jsx)("div", { className: "hero-empty-text",
-                  children: totalGroups === 0 ? "還沒有設定藥物時程" : "今天的藥都吃完了" }),
-              ]}),
 
           // ════════════════════════════════════════════════════════════════
           // TIME-SLOT CARDS — one card per period, icon + status chip
@@ -3762,55 +3776,59 @@ function LogPage({
           children: (0, _jsxRuntime.jsx)("h2", { children: "服藥紀錄" })
         })
       }),
+
+      // ════════════════════════════════════════════════════════════════════
+      // Week/Month toggle + completion ring — pinned alongside header
+      // ════════════════════════════════════════════════════════════════════
+      (0, _jsxRuntime.jsxs)("div", { className: "sticky-top-block", children: [
+        (0, _jsxRuntime.jsxs)("div", { className: "list-tab-row", children: [
+          (0, _jsxRuntime.jsx)("button", {
+            className: "list-tab" + (viewMode === "week" ? " active" : ""),
+            onClick: function(){ switchMode("week"); },
+            children: "週"
+          }),
+          (0, _jsxRuntime.jsx)("button", {
+            className: "list-tab" + (viewMode === "month" ? " active" : ""),
+            onClick: function(){ switchMode("month"); },
+            children: "月"
+          }),
+        ]}),
+
+        (0, _jsxRuntime.jsxs)("div", { className: "log-ring-card", children: [
+
+          // Range navigator: ‹ range-label ›
+          (0, _jsxRuntime.jsxs)("div", { className: "log-range-nav", children: [
+            (0, _jsxRuntime.jsx)("button", {
+              className: "log-range-arrow",
+              onClick: function(){ setOffset(offset - 1); setExpandedDate(null); },
+              children: "‹"
+            }),
+            (0, _jsxRuntime.jsx)("span", { className: "log-range-label", children: rangeLabel }),
+            (0, _jsxRuntime.jsx)("button", {
+              className: "log-range-arrow",
+              onClick: function(){ setOffset(offset + 1); setExpandedDate(null); },
+              children: "›"
+            }),
+          ]}),
+
+          (0, _jsxRuntime.jsxs)("div", { className: "log-ring-wrap", children: [
+            (0, _jsxRuntime.jsxs)("svg", { children: [
+              (0, _jsxRuntime.jsx)("circle", { className: "track", cx: "55", cy: "55", r: "48" }),
+              (0, _jsxRuntime.jsx)("circle", {
+                className: "fill", cx: "55", cy: "55", r: "48",
+                strokeDasharray: RING_CIRC,
+                strokeDashoffset: RING_CIRC - RING_CIRC * rangePct / 100
+              }),
+            ]}),
+            (0, _jsxRuntime.jsxs)("div", { className: "log-ring-center", children: [rangePct, "%"] }),
+          ]}),
+          (0, _jsxRuntime.jsx)("div", { className: "log-ring-label", children: viewMode === "week" ? "本週完成率" : "本月完成率" }),
+        ]}),
+      ]}),
+
       (0, _jsxRuntime.jsxs)("div", {
         className: "main",
         children: [
-
-          // ── Week / Month toggle ──────────────────────────────────────────
-          (0, _jsxRuntime.jsxs)("div", { className: "list-tab-row", children: [
-            (0, _jsxRuntime.jsx)("button", {
-              className: "list-tab" + (viewMode === "week" ? " active" : ""),
-              onClick: function(){ switchMode("week"); },
-              children: "週"
-            }),
-            (0, _jsxRuntime.jsx)("button", {
-              className: "list-tab" + (viewMode === "month" ? " active" : ""),
-              onClick: function(){ switchMode("month"); },
-              children: "月"
-            }),
-          ]}),
-
-          // ── Completion ring (recalculated per range) ─────────────────────
-          (0, _jsxRuntime.jsxs)("div", { className: "log-ring-card", children: [
-
-            // Range navigator: ‹ range-label ›
-            (0, _jsxRuntime.jsxs)("div", { className: "log-range-nav", children: [
-              (0, _jsxRuntime.jsx)("button", {
-                className: "log-range-arrow",
-                onClick: function(){ setOffset(offset - 1); setExpandedDate(null); },
-                children: "‹"
-              }),
-              (0, _jsxRuntime.jsx)("span", { className: "log-range-label", children: rangeLabel }),
-              (0, _jsxRuntime.jsx)("button", {
-                className: "log-range-arrow",
-                onClick: function(){ setOffset(offset + 1); setExpandedDate(null); },
-                children: "›"
-              }),
-            ]}),
-
-            (0, _jsxRuntime.jsxs)("div", { className: "log-ring-wrap", children: [
-              (0, _jsxRuntime.jsxs)("svg", { children: [
-                (0, _jsxRuntime.jsx)("circle", { className: "track", cx: "55", cy: "55", r: "48" }),
-                (0, _jsxRuntime.jsx)("circle", {
-                  className: "fill", cx: "55", cy: "55", r: "48",
-                  strokeDasharray: RING_CIRC,
-                  strokeDashoffset: RING_CIRC - RING_CIRC * rangePct / 100
-                }),
-              ]}),
-              (0, _jsxRuntime.jsxs)("div", { className: "log-ring-center", children: [rangePct, "%"] }),
-            ]}),
-            (0, _jsxRuntime.jsx)("div", { className: "log-ring-label", children: viewMode === "week" ? "本週完成率" : "本月完成率" }),
-          ]}),
 
           (0, _jsxRuntime.jsx)("div", { className: "section-label-row", children: "每日紀錄" }),
 
