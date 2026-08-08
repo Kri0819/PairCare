@@ -1,15 +1,1 @@
-{
-  "name": "PairCare｜陪一刻",
-  "short_name": "PairCare",
-  "description": "雙人照護用藥紀錄工具",
-  "start_url": "/",
-  "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#FAF7F2",
-  "theme_color": "#C4785A",
-  "lang": "zh-TW",
-  "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ]
-}
+{"name":"PairCare｜陪一刻","short_name":"PairCare","description":"雙人照護用藥紀錄工具","start_url":"/","display":"standalone","orientation":"portrait","background_color":"#FAF7F2","theme_color":"#C4785A","lang":"zh-TW","icons":[{"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},{"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}

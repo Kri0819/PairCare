@@ -69,7 +69,7 @@ window.addEventListener('unhandledrejection',function(e){console.error('[PairCar
 <!-- App (inlined — no external JS file needed) -->
 <script>
 "use strict";
-console.log('[PairCare] v12.2 start');
+console.log('[PairCare] v12.3 start');
 
 // ── JSX runtime shim (React UMD globals) ─────────────────────────────────────
 var _jsxRuntime = {
@@ -854,10 +854,51 @@ label {
    MEDICATION CARDS (simplified) — name, schedule line, stock bar only
    Color tiers: green >14d, orange 7-14d, red 3-6d, deep-red <=2d
    ════════════════════════════════════════════════════════════════════════ */
+/* ── Swipe-to-reveal wrapper for MedCard ── */
+.med-swipe-wrap {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius); margin-bottom: 12px;
+}
+.med-swipe-actions {
+  position: absolute; inset: 0; display: flex;
+  border-radius: var(--radius); overflow: hidden;
+}
+.med-swipe-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  border: none; font-family: 'Noto Serif TC', serif; font-size: 0.85rem; font-weight: 600;
+  color: white; cursor: pointer;
+}
+.med-swipe-btn.stop    { background: var(--amber); }
+.med-swipe-btn.resume  { background: var(--sage); }
+.med-swipe-btn.delete  { background: #C0524A; }
+.center-modal-overlay {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(35,28,16,0.5);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.center-modal-card {
+  position: relative;
+  background: var(--paper); border-radius: var(--radius-lg);
+  width: 100%; max-width: 340px; max-height: 82vh; overflow-y: auto;
+  padding: 20px 20px 18px;
+  box-shadow: 0 20px 50px rgba(35,28,16,0.30);
+}
+.center-modal-edit-btn {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: white; border: 1.5px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-light); cursor: pointer; box-shadow: var(--shadow-sm);
+}
+.med-swipe-surface {
+  position: relative; transition: transform 0.22s ease; background: var(--paper);
+}
+
 .med-card-simple {
   display: flex; align-items: flex-start; gap: 14px;
   background: white; border-radius: var(--radius); border: 1.5px solid var(--border);
-  padding: 16px 18px; margin-bottom: 12px; cursor: pointer;
+  padding: 16px 18px; margin-bottom: 0; cursor: pointer;
   box-shadow: var(--shadow-sm); transition: transform 0.12s;
 }
 .med-card-simple:active { transform: scale(0.99); }
@@ -1501,6 +1542,14 @@ window.App = function App() {
   var detailMed    = _detailMed[0];
   var setDetailMed = _detailMed[1];
 
+  var _editMed = useState(null);
+  var editMed    = _editMed[0];
+  var setEditMed = _editMed[1];
+
+  var _refillMed2 = useState(null);
+  var refillMed2    = _refillMed2[0];
+  var setRefillMed2 = _refillMed2[1];
+
   var _toast = useState(null);
   var toast    = _toast[0];
   var setToast = _toast[1];
@@ -2024,6 +2073,18 @@ window.App = function App() {
   // 5. Fully paired → main app
   var isSupporter = user.role === "supporter";
 
+  // Full-page medication edit takes over the entire screen, no bottom nav
+  if (editMed) {
+    return _jsxRuntime.jsxs("div", { className: "app", children: [
+      _jsxRuntime.jsx("style", { children: CSS }),
+      toast && _jsxRuntime.jsx("div", { className: "toast", children: toast }),
+      _jsxRuntime.jsx(MedEditPage, {
+        med: editMed, state: state, update: update, showToast: showToast,
+        onClose: function(){ setEditMed(null); setDetailMed(null); }
+      })
+    ]});
+  }
+
   return _jsxRuntime.jsxs("div", { className: "app", children: [
     _jsxRuntime.jsx("style", { children: CSS }),
     toast && _jsxRuntime.jsx("div", { className: "toast", children: toast }),
@@ -2117,9 +2178,22 @@ window.App = function App() {
       state: state, update: update, isViewer: isSupporter,
       onClose: function(){ setModal(null); }, showToast: showToast
     }),
-    detailMed && _jsxRuntime.jsx(MedDetailModal, {
-      med: detailMed, state: state, update: update, isViewer: isSupporter,
-      onClose: function(){ setDetailMed(null); }, showToast: showToast
+    detailMed && !editMed && _jsxRuntime.jsx(MedViewCard, {
+      med: detailMed, isViewer: isSupporter, showToast: showToast,
+      onClose: function(){ setDetailMed(null); },
+      onEdit: function(m){ setEditMed(m); },
+      onRefill: function(m){ setRefillMed2(m); },
+      onToggle: function(id){
+        update(function(s) {
+          var mm = s.medications.find(function(x){ return x.id === id; });
+          if (mm) mm.status = mm.status === "active" ? "paused" : "active";
+        });
+        showToast("狀態已更新");
+      }
+    }),
+    refillMed2 && _jsxRuntime.jsx(QuickRefillModal2, {
+      med: refillMed2, update: update, showToast: showToast,
+      onClose: function(){ setRefillMed2(null); }
     }),
   ]});
 };
@@ -3115,29 +3189,143 @@ function DashboardPage({
 
 
 // ─── Medication Detail / Edit Modal ──────────────────────────────────────────
-function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
+// ─── Medication View Card (centered small popup, view-only) ─────────────────
+// ─── Quick Refill Modal 2 (single medication, opened from MedViewCard) ──────
+function QuickRefillModal2({ med, update, onClose, showToast }) {
+  var _date   = useState(new Date().toISOString().slice(0,10));
+  var rfDate    = _date[0]; var setRfDate = _date[1];
+  var _source = useState(""); var rfSource = _source[0]; var setRfSource = _source[1];
+  var _amount = useState(""); var rfAmount = _amount[0]; var setRfAmount = _amount[1];
+
+  function confirmRefill() {
+    var amt = Number(rfAmount);
+    if (!amt || amt <= 0) { showToast("請輸入補充顆數"); return; }
+    update(function(s) {
+      var m = s.medications.find(function(mm){ return mm.id === med.id; });
+      if (m) {
+        if (!Array.isArray(m.refills)) m.refills = [];
+        m.refills.unshift({ id: uid(), date: rfDate, source: rfSource.trim() || "未填寫", amount: amt });
+        m.remainingCount = (m.remainingCount || 0) + amt;
+        m.totalCount = Math.max(m.totalCount || 0, m.remainingCount);
+      }
+    });
+    showToast("✓ 已記錄補充 " + amt + " 顆");
+    onClose();
+  }
+
+  return (0, _jsxRuntime.jsx)("div", {
+    className: "center-modal-overlay",
+    onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
+    children: (0, _jsxRuntime.jsxs)("div", { className: "center-modal-card", children: [
+      (0, _jsxRuntime.jsx)("h3", { style:{marginBottom:16}, children: "補充藥物" }),
+      (0, _jsxRuntime.jsxs)("div", { style:{textAlign:"center",marginBottom:16}, children: [
+        (0, _jsxRuntime.jsx)("div", { style:{fontSize:"1rem",fontWeight:600,color:"var(--ink)"}, children: med.name }),
+        (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"0.8rem",color:"var(--ink-muted)",marginTop:4}, children: ["目前剩餘 ", med.remainingCount, " 顆"] }),
+      ]}),
+      (0, _jsxRuntime.jsxs)("div", { className:"field", style:{marginBottom:12}, children: [
+        (0, _jsxRuntime.jsx)("label", { children:"日期" }),
+        (0, _jsxRuntime.jsx)("input", { type:"date", value:rfDate, onChange: function(e){ setRfDate(e.target.value); } }),
+      ]}),
+      (0, _jsxRuntime.jsxs)("div", { className:"field", style:{marginBottom:12}, children: [
+        (0, _jsxRuntime.jsx)("label", { children:"拿藥途徑" }),
+        (0, _jsxRuntime.jsx)("input", { type:"text", value:rfSource, placeholder:"例：回診、慢性藥物、自行購買", onChange: function(e){ setRfSource(e.target.value); } }),
+      ]}),
+      (0, _jsxRuntime.jsxs)("div", { className:"field", style:{marginBottom:16}, children: [
+        (0, _jsxRuntime.jsx)("label", { children:"藥物數量" }),
+        (0, _jsxRuntime.jsx)("input", { type:"number", min:1, value:rfAmount, placeholder:"例：30", onChange: function(e){ setRfAmount(e.target.value); } }),
+      ]}),
+      (0, _jsxRuntime.jsx)("button", { className:"btn btn-primary", onClick:confirmRefill, children:"確認補充" }),
+      (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:8,width:"100%"}, onClick:onClose, children:"取消" }),
+    ]})
+  });
+}
+
+
+function MedViewCard({ med, isViewer, onClose, onEdit, onRefill, onToggle, showToast }) {
+  var dailyDose = (med.schedules || []).reduce((s, sc) => s + sc.dose, 0);
+  var est = estimateFinishDate(med.remainingCount, dailyDose);
+
+  return (0, _jsxRuntime.jsx)("div", {
+    className: "center-modal-overlay",
+    onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
+    children: (0, _jsxRuntime.jsxs)("div", { className: "center-modal-card", children: [
+
+      !isViewer && (0, _jsxRuntime.jsx)("button", {
+        className: "center-modal-edit-btn",
+        onClick: function(){ onEdit(med); },
+        children: (0, _jsxRuntime.jsx)("svg", {
+          viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2",
+          style: { width: 18, height: 18 },
+          children: (0, _jsxRuntime.jsx)("path", { d: "M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" })
+        })
+      }),
+
+      (0, _jsxRuntime.jsxs)("div", { className: "med-detail-header", style:{padding:"20px 16px 16px"}, children: [
+        med.photo
+          ? (0, _jsxRuntime.jsx)("img", { src: med.photo, className: "med-photo-img", alt: med.name })
+          : (0, _jsxRuntime.jsx)("div", { className: "med-detail-icon", children: "💊" }),
+        (0, _jsxRuntime.jsx)("div", { className: "med-detail-name", children: med.name }),
+        (0, _jsxRuntime.jsx)("div", { className: "med-detail-sub", children: med.status === "active" ? "服用中" : "已停藥" }),
+      ]}),
+
+      (0, _jsxRuntime.jsxs)("div", { className: "med-detail-card", style:{marginBottom:12}, children: [
+        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
+          (0, _jsxRuntime.jsx)("span", { className: "label", children: "服藥時段" }),
+          (0, _jsxRuntime.jsx)("span", { className: "value",
+            children: (med.schedules || []).map(function(sc){
+              var p = PERIOD_MAP[sc.periodId];
+              return p ? p.icon + p.label : sc.periodId;
+            }).join("、") || "—"
+          }),
+        ]}),
+        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
+          (0, _jsxRuntime.jsx)("span", { className: "label", children: "服用方式" }),
+          (0, _jsxRuntime.jsx)("span", { className: "value", children: med.method || "口服" }),
+        ]}),
+        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
+          (0, _jsxRuntime.jsx)("span", { className: "label", children: "總數量" }),
+          (0, _jsxRuntime.jsxs)("span", { className: "value", children: [med.totalCount, " 顆"] }),
+        ]}),
+        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
+          (0, _jsxRuntime.jsx)("span", { className: "label", children: "剩餘數量" }),
+          (0, _jsxRuntime.jsxs)("span", { className: "value", children: [med.remainingCount, " 顆"] }),
+        ]}),
+        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
+          (0, _jsxRuntime.jsx)("span", { className: "label", children: "預估剩餘天數" }),
+          (0, _jsxRuntime.jsx)("span", { className: "value", children: est ? (est.days + " 天") : "—" }),
+        ]}),
+      ]}),
+
+      !isViewer && (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",gap:10,marginBottom:10}, children: [
+        (0, _jsxRuntime.jsx)("button", {
+          className: "btn btn-secondary", style:{flex:1,width:"auto",marginTop:0},
+          onClick: function(){ onRefill(med); },
+          children: "補充藥物"
+        }),
+        (0, _jsxRuntime.jsx)("button", {
+          className: "btn btn-danger", style:{flex:1,width:"auto"},
+          onClick: function(){ onToggle(med.id); onClose(); },
+          children: med.status === "active" ? "停用藥物" : "恢復服用"
+        }),
+      ]}),
+      (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{width:"100%"}, onClick:onClose, children:"關閉" }),
+    ]})
+  });
+}
+
+// ─── Medication Edit Page (full page, entered via the pencil icon) ──────────
+function MedEditPage({ med, state, update, onClose, showToast }) {
   var _name   = useState(med.name);            var name   = _name[0];   var setName   = _name[1];
-  var _total  = useState(med.totalCount);      var total  = _total[0];  var setTotal  = _total[1];
-  var _rem    = useState(med.remainingCount);  var rem    = _rem[0];    var setRem    = _rem[1];
   var _sched  = useState(med.schedules || []); var schedules = _sched[0]; var setSchedules = _sched[1];
   var _photo  = useState(med.photo || null);   var photo  = _photo[0];  var setPhoto  = _photo[1];
   var _method = useState(med.method || "口服"); var method = _method[0]; var setMethod = _method[1];
 
-  // Collapsible sections — both start closed
-  var _schedOpen   = useState(false); var schedOpen   = _schedOpen[0];   var setSchedOpen   = _schedOpen[1];
-  var _refillOpen  = useState(false); var refillOpen  = _refillOpen[0]; var setRefillOpen  = _refillOpen[1];
+  var _schedOpen = useState(false); var schedOpen = _schedOpen[0]; var setSchedOpen = _schedOpen[1];
   var _photoMenuOpen = useState(false); var photoMenuOpen = _photoMenuOpen[0]; var setPhotoMenuOpen = _photoMenuOpen[1];
 
-  // Refill form fields
-  var _rfDate   = useState(new Date().toISOString().slice(0,10)); var rfDate   = _rfDate[0];   var setRfDate   = _rfDate[1];
-  var _rfSource = useState("");  var rfSource = _rfSource[0]; var setRfSource = _rfSource[1];
-  var _rfAmount = useState("");  var rfAmount = _rfAmount[0]; var setRfAmount = _rfAmount[1];
-
   var periodTimes = (state.settings && state.settings.periodTimes) || {};
-  var dailyDose = schedules.reduce(function(s, sc){ return s + (sc.dose || 0); }, 0);
-  var est = estimateFinishDate(rem, dailyDose);
-  var photoInputRef  = useRef(null); // gallery (no capture attr)
-  var cameraInputRef = useRef(null); // camera (capture="environment")
+  var photoInputRef  = useRef(null);
+  var cameraInputRef = useRef(null);
 
   var METHOD_OPTIONS = ["口服", "外用", "塞劑", "打針", "吸入", "貼片"];
 
@@ -3147,23 +3335,12 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
       var m = s.medications.find(function(mm){ return mm.id === med.id; });
       if (m) {
         m.name = name.trim();
-        // totalCount / remainingCount are NOT editable here — they only
-        // change via dose-taking (markPeriodTaken) or refill (confirmRefill)
         m.schedules = schedules;
         m.photo = photo;
         m.method = method;
       }
     });
     showToast("✓ 已儲存變更");
-    onClose();
-  }
-
-  function toggleStatus() {
-    update(function(s) {
-      var m = s.medications.find(function(mm){ return mm.id === med.id; });
-      if (m) m.status = m.status === "active" ? "paused" : "active";
-    });
-    showToast(med.status === "active" ? "已停用此藥物" : "已恢復服用");
     onClose();
   }
 
@@ -3175,8 +3352,8 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
     reader.onerror = function() { showToast("照片讀取失敗"); };
     reader.readAsDataURL(file);
   }
-  function handleGalleryChange(e)  { readPhotoFile(e.target.files && e.target.files[0]); setPhotoMenuOpen(false); }
-  function handleCameraChange(e)   { readPhotoFile(e.target.files && e.target.files[0]); setPhotoMenuOpen(false); }
+  function handleGalleryChange(e) { readPhotoFile(e.target.files && e.target.files[0]); setPhotoMenuOpen(false); }
+  function handleCameraChange(e)  { readPhotoFile(e.target.files && e.target.files[0]); setPhotoMenuOpen(false); }
   function removePhoto() { setPhoto(null); setPhotoMenuOpen(false); }
 
   function adjustDose(idx, delta) {
@@ -3189,261 +3366,144 @@ function MedDetailModal({ med, state, update, isViewer, onClose, showToast }) {
     });
   }
 
-  function confirmRefill() {
-    var amt = Number(rfAmount);
-    if (!amt || amt <= 0) { showToast("請輸入補充顆數"); return; }
-    if (!rfDate) { showToast("請選擇日期"); return; }
-    update(function(s) {
-      var m = s.medications.find(function(mm){ return mm.id === med.id; });
-      if (m) {
-        if (!Array.isArray(m.refills)) m.refills = [];
-        m.refills.unshift({ id: uid(), date: rfDate, source: rfSource.trim() || "未填寫", amount: amt });
-        m.remainingCount = (m.remainingCount || 0) + amt;
-        m.totalCount = Math.max(m.totalCount || 0, m.remainingCount);
-      }
-    });
-    setRem(function(prev) { return Number(prev) + amt; });
-    setTotal(function(prev) { return Math.max(Number(prev), Number(rem) + amt); });
-    setRfAmount("");
-    setRfSource("");
-    showToast("✓ 已記錄補充 " + amt + " 顆");
-  }
-
   var firstSchedLabel = (function() {
     var first = schedules[0];
     var p = first && PERIOD_MAP[first.periodId];
     return p ? (p.icon + " " + p.label) : "尚未設定";
   })();
 
-  return _jsxRuntime.jsxs(_jsxRuntime.Fragment, { children: [
-  (0, _jsxRuntime.jsx)("div", {
-    className: "modal-overlay",
-    onClick: function(e){ if (e.target === e.currentTarget) onClose(); },
-    children: (0, _jsxRuntime.jsxs)("div", { className: "modal", children: [
-      (0, _jsxRuntime.jsx)("div", { className: "modal-top", children:
-        (0, _jsxRuntime.jsx)("div", { className: "modal-handle" })
-      }),
-      (0, _jsxRuntime.jsxs)("div", { className: "modal-scroll", children: [
-
-        // ── Photo header — tap opens an action sheet (拍照/從圖庫選擇/移除) ──
-        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-header", children: [
-          (0, _jsxRuntime.jsxs)("div", {
-            className: "med-photo-wrap",
-            onClick: function(){ if (!isViewer) setPhotoMenuOpen(true); },
-            children: [
-              photo
-                ? (0, _jsxRuntime.jsx)("img", { src: photo, className: "med-photo-img", alt: "藥品照片" })
-                : (0, _jsxRuntime.jsx)("div", { className: "med-detail-icon", children: "💊" }),
-              !isViewer && (0, _jsxRuntime.jsx)("div", { className: "med-photo-badge", children: "📷" }),
-            ]
-          }),
-          // Hidden inputs — one for gallery, one for camera capture
-          !isViewer && (0, _jsxRuntime.jsx)("input", {
-            type: "file", accept: "image/*",
-            ref: photoInputRef, style: { display: "none" },
-            onChange: handleGalleryChange
-          }),
-          !isViewer && (0, _jsxRuntime.jsx)("input", {
-            type: "file", accept: "image/*", capture: "environment",
-            ref: cameraInputRef, style: { display: "none" },
-            onChange: handleCameraChange
-          }),
-          isViewer
-            ? (0, _jsxRuntime.jsx)("div", { className: "med-detail-name", children: med.name })
-            : (0, _jsxRuntime.jsx)("input", {
-                type: "text", value: name,
-                style: { textAlign:"center", fontSize:"1.15rem", fontWeight:700, border:"none", background:"transparent", marginTop:8 },
-                onChange: function(e){ setName(e.target.value); }
-              }),
-          (0, _jsxRuntime.jsx)("div", { className: "med-detail-sub", children: med.status === "active" ? "服用中" : "已停藥" }),
-        ]}),
-
-        // ── ① 服藥時段（摺疊，預設收合，展開後是大方框 chip + 中文標籤）─────
-        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-card", style:{padding:"4px 0"}, children: [
-          (0, _jsxRuntime.jsxs)("div", {
-            className: "med-detail-row",
-            style: { cursor:"pointer" },
-            onClick: function(){ setSchedOpen(!schedOpen); },
-            children: [
-              (0, _jsxRuntime.jsxs)("div", { children: [
-                (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.95rem",fontWeight:600,color:"var(--ink)",marginBottom:4}, children:"服藥時段" }),
-                !schedOpen && (0, _jsxRuntime.jsxs)("div", { style:{fontSize:"0.85rem",color:"var(--ink-light)"}, children: [
-                  schedules[0] && PERIOD_MAP[schedules[0].periodId] ? PERIOD_MAP[schedules[0].periodId].icon : "",
-                  " ", firstSchedLabel.replace(/^[^\\s]+\\s/, ""),
-                  schedules.length > 1 ? ("等 " + schedules.length + " 個時段") : ""
-                ]}),
-              ]}),
-              (0, _jsxRuntime.jsx)("span", { className: "collapsible-chevron" + (schedOpen ? " open" : ""), style:{fontSize:"1.2rem"}, children: schedOpen ? "︿" : "﹀" }),
-            ]
-          }),
-          schedOpen && !isViewer && (0, _jsxRuntime.jsxs)("div", { style:{padding:"0 18px 16px"}, children: [
-            (0, _jsxRuntime.jsx)("div", {
-              style: { display:"flex", flexWrap:"wrap", gap:10, marginTop: 4 },
-              children: PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
-                var isSelected = schedules.some(function(s){ return s.periodId === p.id; });
-                return (0, _jsxRuntime.jsxs)("button", {
-                  type: "button",
-                  className: "sched-box" + (isSelected ? " selected" : ""),
-                  onClick: function() {
-                    if (isSelected) {
-                      setSchedules(schedules.filter(function(s){ return s.periodId !== p.id; }));
-                    } else {
-                      var defTime = getDefaultPeriodTime(p.id, periodTimes);
-                      setSchedules(schedules.concat([{ periodId: p.id, time: defTime, dose: 1 }]));
-                    }
-                  },
-                  children: [
-                    (0, _jsxRuntime.jsx)("span", { style:{fontSize:"1.1rem"}, children: p.icon }),
-                    (0, _jsxRuntime.jsx)("span", { children: p.label }),
-                  ]
-                }, p.id);
-              })
-            }),
-          ]}),
-          schedOpen && isViewer && (0, _jsxRuntime.jsx)("div", { style:{padding:"0 18px 16px",fontSize:"0.85rem",color:"var(--ink-light)"},
-            children: schedules.map(function(sc){
-              var p = PERIOD_MAP[sc.periodId];
-              return p ? (p.icon + p.label) : sc.periodId;
-            }).join("、") || "尚未設定"
-          }),
-        ]}),
-
-        // ── ② 用量（每個已選時段各一行）────────────────────────────────────
-        (0, _jsxRuntime.jsx)("div", { className: "med-detail-card", children:
-          schedules.length === 0
-            ? (0, _jsxRuntime.jsx)("div", { className:"med-detail-row", children:
-                (0, _jsxRuntime.jsx)("span", { className:"label", children:"尚未選擇服藥時段" })
-              })
-            : schedules.map(function(sc, idx) {
-                var p = PERIOD_MAP[sc.periodId];
-                return (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", key: idx, children: [
-                  (0, _jsxRuntime.jsxs)("span", { className: "label", children: [
-                    "用量", p ? (" · " + p.icon + p.label) : ""
-                  ]}),
-                  isViewer
-                    ? (0, _jsxRuntime.jsxs)("span", { className: "value", children: [sc.dose, " 顆"] })
-                    : (0, _jsxRuntime.jsxs)("div", { className: "dose-stepper", children: [
-                        (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, -0.5); }, children: "−" }),
-                        (0, _jsxRuntime.jsx)("div", { className: "dose-step-value", children: sc.dose }),
-                        (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, 0.5); }, children: "＋" }),
-                        (0, _jsxRuntime.jsx)("span", { className: "dose-step-unit", children: "顆" }),
-                      ]}),
-                ]});
-              })
+  return (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, { children: [
+    (0, _jsxRuntime.jsx)("div", {
+      className: "header",
+      children: (0, _jsxRuntime.jsxs)("div", { className: "header-row", children: [
+        (0, _jsxRuntime.jsx)("button", {
+          className: "btn-icon", onClick: onClose,
+          children: (0, _jsxRuntime.jsx)("svg", {
+            viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:"2",
+            style:{width:20,height:20},
+            children: (0, _jsxRuntime.jsx)("path", { d:"M15 18l-6-6 6-6" })
+          })
         }),
+        (0, _jsxRuntime.jsx)("h2", { children: "編輯藥物" }),
+        (0, _jsxRuntime.jsx)("button", { className: "btn-icon", onClick: save, children: "儲存" }),
+      ]})
+    }),
+    (0, _jsxRuntime.jsxs)("div", { className: "main", children: [
 
-        // ── ③ 服用方式 ───────────────────────────────────────────────────
-        (0, _jsxRuntime.jsx)("div", { className: "med-detail-card", children:
-          (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
-            (0, _jsxRuntime.jsx)("span", { className: "label", children: "服用方式" }),
-            isViewer
-              ? (0, _jsxRuntime.jsx)("span", { className: "value", children: method })
-              : (0, _jsxRuntime.jsx)("select", {
-                  value: method,
-                  style: { width: 110, marginTop:0, padding:"6px 10px", fontSize:"0.88rem", textAlign:"right" },
-                  onChange: function(e){ setMethod(e.target.value); },
-                  children: METHOD_OPTIONS.map(function(opt){
-                    return (0, _jsxRuntime.jsx)("option", { value: opt, children: opt }, opt);
-                  })
-                }),
-          ]})
-        }),
-
-        // ── 數量資訊（純顯示，不可手動編輯；只能被打卡/補藥改動）──────────
-        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-card", children: [
-          (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
-            (0, _jsxRuntime.jsx)("span", { className: "label", children: "總數量" }),
-            (0, _jsxRuntime.jsxs)("span", { className: "value", children: [total, " 顆"] }),
-          ]}),
-          (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
-            (0, _jsxRuntime.jsx)("span", { className: "label", children: "剩餘數量" }),
-            (0, _jsxRuntime.jsxs)("span", { className: "value", children: [rem, " 顆"] }),
-          ]}),
-          (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
-            (0, _jsxRuntime.jsx)("span", { className: "label", children: "預估剩餘天數" }),
-            (0, _jsxRuntime.jsx)("span", { className: "value", children: est ? (est.days + " 天") : "—" }),
-          ]}),
-        ]}),
-
-        // ── 補充藥品（摺疊）─────────────────────────────────────────────────
-        !isViewer && (0, _jsxRuntime.jsxs)("div", {
-          className: "collapsible-row",
-          style: { marginTop: 14 },
-          onClick: function(){ setRefillOpen(!refillOpen); },
+      (0, _jsxRuntime.jsxs)("div", { className: "med-detail-header", children: [
+        (0, _jsxRuntime.jsxs)("div", {
+          className: "med-photo-wrap",
+          onClick: function(){ setPhotoMenuOpen(true); },
           children: [
-            (0, _jsxRuntime.jsxs)("div", { children: [
-              (0, _jsxRuntime.jsx)("div", { className:"settings-label", children:"💊 補充藥品" }),
-              (0, _jsxRuntime.jsx)("div", { className:"settings-sub", children: (med.refills && med.refills.length) ? ("已記錄 " + med.refills.length + " 次") : "點擊新增補藥記錄" }),
-            ]}),
-            (0, _jsxRuntime.jsx)("span", { className: "collapsible-chevron" + (refillOpen ? " open" : ""), children: "›" }),
+            photo
+              ? (0, _jsxRuntime.jsx)("img", { src: photo, className: "med-photo-img", alt: "藥品照片" })
+              : (0, _jsxRuntime.jsx)("div", { className: "med-detail-icon", children: "💊" }),
+            (0, _jsxRuntime.jsx)("div", { className: "med-photo-badge", children: "📷" }),
           ]
         }),
-        refillOpen && !isViewer && (0, _jsxRuntime.jsxs)("div", { className: "refill-form", children: [
-          (0, _jsxRuntime.jsxs)("div", { className: "field", style:{marginBottom:12}, children: [
-            (0, _jsxRuntime.jsx)("label", { children: "日期" }),
-            (0, _jsxRuntime.jsx)("input", {
-              type: "date", value: rfDate,
-              onChange: function(e){ setRfDate(e.target.value); }
-            }),
-          ]}),
-          (0, _jsxRuntime.jsxs)("div", { className: "field", style:{marginBottom:12}, children: [
-            (0, _jsxRuntime.jsx)("label", { children: "拿藥途徑" }),
-            (0, _jsxRuntime.jsx)("input", {
-              type: "text", value: rfSource, placeholder: "例：回診、慢性藥物、自行購買",
-              onChange: function(e){ setRfSource(e.target.value); }
-            }),
-          ]}),
-          (0, _jsxRuntime.jsxs)("div", { className: "field", style:{marginBottom:12}, children: [
-            (0, _jsxRuntime.jsx)("label", { children: "藥物數量" }),
-            (0, _jsxRuntime.jsx)("input", {
-              type: "number", min: 1, value: rfAmount, placeholder: "例：30",
-              onChange: function(e){ setRfAmount(e.target.value); }
-            }),
-          ]}),
-          (0, _jsxRuntime.jsx)("button", { className: "btn btn-primary", onClick: confirmRefill, children: "確認補充" }),
-          (med.refills && med.refills.length > 0) && (0, _jsxRuntime.jsxs)("div", { style:{marginTop:14}, children: [
-            (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.72rem",color:"var(--ink-muted)",marginBottom:8,fontWeight:600}, children:"補充紀錄" }),
-            med.refills.slice(0,5).map(function(rf) {
-              return (0, _jsxRuntime.jsxs)("div", {
-                key: rf.id,
-                style: { display:"flex", justifyContent:"space-between", fontSize:"0.8rem", color:"var(--ink-light)", padding:"6px 0", borderBottom:"1px solid rgba(35,28,16,0.06)" },
-                children: [
-                  (0, _jsxRuntime.jsxs)("span", { children: [rf.date, " · ", rf.source] }),
-                  (0, _jsxRuntime.jsxs)("span", { style:{fontWeight:600}, children: ["+", rf.amount, " 顆"] }),
-                ]
-              });
-            }),
-          ]}),
-        ]}),
-
-        // ── Bottom: two large buttons ───────────────────────────────────────
-        !isViewer && (0, _jsxRuntime.jsxs)("div", { style:{display:"flex",gap:10,marginTop:20}, children: [
-          (0, _jsxRuntime.jsx)("button", {
-            className: "btn btn-danger", style:{flex:1,width:"auto"},
-            onClick: toggleStatus,
-            children: med.status === "active" ? "停用藥物" : "恢復服用"
-          }),
-          (0, _jsxRuntime.jsx)("button", {
-            className: "btn btn-primary", style:{flex:1,width:"auto"},
-            onClick: save,
-            children: "儲存變更"
-          }),
-        ]}),
-        (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:10,width:"100%"}, onClick:onClose, children:"關閉" }),
+        (0, _jsxRuntime.jsx)("input", {
+          type: "file", accept: "image/*",
+          ref: photoInputRef, style: { display: "none" },
+          onChange: handleGalleryChange
+        }),
+        (0, _jsxRuntime.jsx)("input", {
+          type: "file", accept: "image/*", capture: "environment",
+          ref: cameraInputRef, style: { display: "none" },
+          onChange: handleCameraChange
+        }),
+        (0, _jsxRuntime.jsx)("input", {
+          type: "text", value: name,
+          style: { textAlign:"center", fontSize:"1.15rem", fontWeight:700, border:"none", background:"transparent", marginTop:8 },
+          onChange: function(e){ setName(e.target.value); }
+        }),
       ]}),
+
+      // ── 服藥時段（摺疊）─────────────────────────────────────────────────
+      (0, _jsxRuntime.jsxs)("div", { className: "med-detail-card", style:{padding:"4px 0"}, children: [
+        (0, _jsxRuntime.jsxs)("div", {
+          className: "med-detail-row", style: { cursor:"pointer" },
+          onClick: function(){ setSchedOpen(!schedOpen); },
+          children: [
+            (0, _jsxRuntime.jsxs)("div", { children: [
+              (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.95rem",fontWeight:600,color:"var(--ink)",marginBottom:4}, children:"服藥時段" }),
+              !schedOpen && (0, _jsxRuntime.jsx)("div", { style:{fontSize:"0.85rem",color:"var(--ink-light)"}, children: firstSchedLabel + (schedules.length > 1 ? ("等 " + schedules.length + " 個時段") : "") }),
+            ]}),
+            (0, _jsxRuntime.jsx)("span", { style:{fontSize:"1.2rem",color:"var(--ink-muted)"}, children: schedOpen ? "︿" : "﹀" }),
+          ]
+        }),
+        schedOpen && (0, _jsxRuntime.jsx)("div", { style:{padding:"0 18px 16px"}, children:
+          (0, _jsxRuntime.jsx)("div", { style:{display:"flex",flexWrap:"wrap",gap:10,marginTop:4}, children:
+            PERIODS.filter(function(p){ return p.id !== "custom"; }).map(function(p) {
+              var isSelected = schedules.some(function(s){ return s.periodId === p.id; });
+              return (0, _jsxRuntime.jsxs)("button", {
+                type: "button",
+                className: "sched-box" + (isSelected ? " selected" : ""),
+                onClick: function() {
+                  if (isSelected) setSchedules(schedules.filter(function(s){ return s.periodId !== p.id; }));
+                  else {
+                    var defTime = getDefaultPeriodTime(p.id, periodTimes);
+                    setSchedules(schedules.concat([{ periodId: p.id, time: defTime, dose: 1 }]));
+                  }
+                },
+                children: [
+                  (0, _jsxRuntime.jsx)("span", { style:{fontSize:"1.1rem"}, children: p.icon }),
+                  (0, _jsxRuntime.jsx)("span", { children: p.label }),
+                ]
+              }, p.id);
+            })
+          })
+        }),
+      ]}),
+
+      // ── 用量 ─────────────────────────────────────────────────────────
+      (0, _jsxRuntime.jsx)("div", { className: "med-detail-card", children:
+        schedules.length === 0
+          ? (0, _jsxRuntime.jsx)("div", { className:"med-detail-row", children:
+              (0, _jsxRuntime.jsx)("span", { className:"label", children:"尚未選擇服藥時段" })
+            })
+          : schedules.map(function(sc, idx) {
+              var p = PERIOD_MAP[sc.periodId];
+              return (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", key: idx, children: [
+                (0, _jsxRuntime.jsxs)("span", { className: "label", children: ["用量", p ? (" · " + p.icon + p.label) : ""] }),
+                (0, _jsxRuntime.jsxs)("div", { className: "dose-stepper", children: [
+                  (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, -0.5); }, children: "−" }),
+                  (0, _jsxRuntime.jsx)("div", { className: "dose-step-value", children: sc.dose }),
+                  (0, _jsxRuntime.jsx)("button", { className:"dose-step-btn", onClick: function(){ adjustDose(idx, 0.5); }, children: "＋" }),
+                  (0, _jsxRuntime.jsx)("span", { className: "dose-step-unit", children: "顆" }),
+                ]}),
+              ]});
+            })
+      }),
+
+      // ── 服用方式 ─────────────────────────────────────────────────────
+      (0, _jsxRuntime.jsx)("div", { className: "med-detail-card", children:
+        (0, _jsxRuntime.jsxs)("div", { className: "med-detail-row", children: [
+          (0, _jsxRuntime.jsx)("span", { className: "label", children: "服用方式" }),
+          (0, _jsxRuntime.jsx)("select", {
+            value: method,
+            style: { width: 110, marginTop:0, padding:"6px 10px", fontSize:"0.88rem", textAlign:"right" },
+            onChange: function(e){ setMethod(e.target.value); },
+            children: METHOD_OPTIONS.map(function(opt){
+              return (0, _jsxRuntime.jsx)("option", { value: opt, children: opt }, opt);
+            })
+          }),
+        ]})
+      }),
+
+      (0, _jsxRuntime.jsx)("button", { className: "btn btn-primary", style:{marginTop:8}, onClick: save, children: "儲存變更" }),
+      (0, _jsxRuntime.jsx)("button", { className:"btn btn-ghost", style:{marginTop:10,width:"100%"}, onClick:onClose, children:"取消" }),
     ]}),
-  }),
-  photoMenuOpen && !isViewer && _jsxRuntime.jsx(MedPhotoActionSheet, {
-    photo: photo,
-    onClose: function(){ setPhotoMenuOpen(false); },
-    onCamera: function(){ setPhotoMenuOpen(false); if (cameraInputRef.current) cameraInputRef.current.click(); },
-    onGallery: function(){ setPhotoMenuOpen(false); if (photoInputRef.current) photoInputRef.current.click(); },
-    onRemove: removePhoto
-  })
+
+    photoMenuOpen && _jsxRuntime.jsx(MedPhotoActionSheet, {
+      photo: photo,
+      onClose: function(){ setPhotoMenuOpen(false); },
+      onCamera: function(){ setPhotoMenuOpen(false); if (cameraInputRef.current) cameraInputRef.current.click(); },
+      onGallery: function(){ setPhotoMenuOpen(false); if (photoInputRef.current) photoInputRef.current.click(); },
+      onRemove: removePhoto
+    })
   ]});
 }
 
-// ── Photo action-sheet (拍照 / 從圖庫選擇 / 移除目前相片) ──────────────────
 function MedPhotoActionSheet({ photo, onClose, onCamera, onGallery, onRemove }) {
   return (0, _jsxRuntime.jsx)("div", {
     className: "modal-overlay",
@@ -3497,6 +3557,14 @@ function MedsPage({
     });
     showToast("狀態已更新");
   }
+  function deleteMed(med) {
+    if (isViewer) return;
+    if (!window.confirm("確定要刪除「" + med.name + "」嗎？此操作無法還原。")) return;
+    update(function(s) {
+      s.medications = s.medications.filter(function(m){ return m.id !== med.id; });
+    });
+    showToast("已刪除 " + med.name);
+  }
 
   var shownMeds = listTab === "active" ? active : paused;
 
@@ -3548,7 +3616,9 @@ function MedsPage({
             : shownMeds.map(m => (0, _jsxRuntime.jsx)(MedCard, {
                 med: m,
                 isViewer: isViewer,
-                onOpenDetail: openDetail
+                onOpenDetail: openDetail,
+                onToggle: toggle,
+                onDelete: deleteMed
               }, m.id))
         ]
       })
@@ -3562,7 +3632,9 @@ function MedsPage({
 function MedCard({
   med,
   isViewer,
-  onOpenDetail
+  onOpenDetail,
+  onToggle,
+  onDelete
 }) {
   var dailyDose = (med.schedules || []).reduce((s, sc) => s + sc.dose, 0);
   var est = estimateFinishDate(med.remainingCount, dailyDose);
@@ -3583,27 +3655,81 @@ function MedCard({
     ? (firstPeriod.label + " · 口服 · " + firstSched.dose + " 顆")
     : "尚未設定時段";
 
-  return (0, _jsxRuntime.jsxs)("div", {
-    className: "med-card-simple " + med.status,
-    onClick: function(){ if (onOpenDetail) onOpenDetail(med); },
-    children: [
-      med.photo
-        ? (0, _jsxRuntime.jsx)("img", { src: med.photo, className: "med-simple-icon med-simple-photo", alt: med.name })
-        : (0, _jsxRuntime.jsx)("div", { className: "med-simple-icon", children: "💊" }),
-      (0, _jsxRuntime.jsxs)("div", { className: "med-simple-body", children: [
-        (0, _jsxRuntime.jsx)("div", { className: "med-simple-name", children: med.name }),
-        (0, _jsxRuntime.jsx)("div", { className: "med-simple-sched", children: scheduleLine }),
-        med.status === "active" && (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, { children: [
-          (0, _jsxRuntime.jsxs)("div", { className: "med-simple-stock lv-" + level, children: [
-            "剩餘 ", med.remainingCount, " 顆", est && (" (約 " + est.days + " 天)")
-          ]}),
-          (0, _jsxRuntime.jsx)("div", { className: "med-simple-bar-track", children:
-            (0, _jsxRuntime.jsx)("div", { className: "med-simple-bar-fill lv-" + level, style: { width: pct + "%" } })
+  // ── Swipe-to-reveal (left = stop/resume, right = delete) ─────────────────
+  var _dragX = useState(0);
+  var dragX    = _dragX[0];
+  var setDragX = _dragX[1];
+  var touchStartRef = useRef(null);
+  var REVEAL_WIDTH = 84; // px revealed per side
+
+  function handleTouchStart(e) {
+    if (isViewer) return;
+    touchStartRef.current = e.touches[0].clientX;
+  }
+  function handleTouchMove(e) {
+    if (isViewer || touchStartRef.current === null) return;
+    var delta = e.touches[0].clientX - touchStartRef.current;
+    // Clamp: negative (swipe left, reveal delete on right) or positive (swipe right, reveal stop on left)
+    var clamped = Math.max(-REVEAL_WIDTH, Math.min(REVEAL_WIDTH, delta));
+    setDragX(clamped);
+  }
+  function handleTouchEnd() {
+    touchStartRef.current = null;
+    // Snap to fully open or closed based on how far it was dragged
+    if (dragX > REVEAL_WIDTH * 0.5) setDragX(REVEAL_WIDTH);
+    else if (dragX < -REVEAL_WIDTH * 0.5) setDragX(-REVEAL_WIDTH);
+    else setDragX(0);
+  }
+  function closeSwipe() { setDragX(0); }
+
+  return (0, _jsxRuntime.jsxs)("div", { className: "med-swipe-wrap", children: [
+    !isViewer && (0, _jsxRuntime.jsxs)("div", { className: "med-swipe-actions", children: [
+      med.status === "active"
+        ? (0, _jsxRuntime.jsx)("button", {
+            className: "med-swipe-btn stop",
+            onClick: function(){ closeSwipe(); if (onToggle) onToggle(med.id); },
+            children: "停用"
+          })
+        : (0, _jsxRuntime.jsx)("button", {
+            className: "med-swipe-btn resume",
+            onClick: function(){ closeSwipe(); if (onToggle) onToggle(med.id); },
+            children: "恢復服用"
           }),
-        ]}),
-      ]}),
-    ]
-  });
+      (0, _jsxRuntime.jsx)("button", {
+        className: "med-swipe-btn delete",
+        onClick: function(){ closeSwipe(); if (onDelete) onDelete(med); },
+        children: "刪除"
+      }),
+    ]}),
+    (0, _jsxRuntime.jsx)("div", {
+      className: "med-swipe-surface",
+      style: { transform: "translateX(" + dragX + "px)" },
+      onTouchStart: handleTouchStart,
+      onTouchMove: handleTouchMove,
+      onTouchEnd: handleTouchEnd,
+      children: (0, _jsxRuntime.jsxs)("div", {
+        className: "med-card-simple " + med.status,
+        onClick: function(){ if (dragX !== 0) { closeSwipe(); return; } if (onOpenDetail) onOpenDetail(med); },
+        children: [
+          med.photo
+            ? (0, _jsxRuntime.jsx)("img", { src: med.photo, className: "med-simple-icon med-simple-photo", alt: med.name })
+            : (0, _jsxRuntime.jsx)("div", { className: "med-simple-icon", children: "💊" }),
+          (0, _jsxRuntime.jsxs)("div", { className: "med-simple-body", children: [
+            (0, _jsxRuntime.jsx)("div", { className: "med-simple-name", children: med.name }),
+            (0, _jsxRuntime.jsx)("div", { className: "med-simple-sched", children: scheduleLine }),
+            med.status === "active" && (0, _jsxRuntime.jsxs)(_jsxRuntime.Fragment, { children: [
+              (0, _jsxRuntime.jsxs)("div", { className: "med-simple-stock lv-" + level, children: [
+                "剩餘 ", med.remainingCount, " 顆", est && (" (約 " + est.days + " 天)")
+              ]}),
+              (0, _jsxRuntime.jsx)("div", { className: "med-simple-bar-track", children:
+                (0, _jsxRuntime.jsx)("div", { className: "med-simple-bar-fill lv-" + level, style: { width: pct + "%" } })
+              }),
+            ]}),
+          ]}),
+        ]
+      })
+    }),
+  ]});
 }
 
 
